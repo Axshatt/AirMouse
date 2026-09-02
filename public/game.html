@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fruit Ninja — AirMouse Katana Edition</title>
+  <title>Fruit Ninja — AirMouse Gyro Slicer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Outfit:wght@400;600;800;900&display=swap" rel="stylesheet">
@@ -328,7 +328,7 @@
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      background: radial-gradient(circle at center, rgba(50, 10, 20, 0.95), rgba(8, 7, 13, 0.98));
+      background: radial-gradient(circle at center, rgba(30, 20, 50, 0.95), rgba(8, 7, 13, 0.98));
       backdrop-filter: blur(20px);
       z-index: 100;
     }
@@ -339,10 +339,10 @@
       font-family: 'Cinzel', serif;
       font-size: 72px;
       font-weight: 900;
-      background: linear-gradient(135deg, #ff0844, #ffb199);
+      background: linear-gradient(135deg, #ffd700, #ff8c00);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
-      text-shadow: 0 10px 40px rgba(255, 8, 68, 0.5);
+      text-shadow: 0 10px 40px rgba(255, 140, 0, 0.5);
       margin-bottom: 16px;
     }
 
@@ -423,22 +423,22 @@
     <div class="corner-qr-box">
       <img id="qrImg" src="" alt="Scan QR">
     </div>
-    <div class="label">Scan for Gyro Sword</div>
+    <div class="label">Scan for Gyro Slicer</div>
     <div class="url" id="qrUrl"></div>
   </div>
 
   <!-- Start Overlay -->
   <div id="startOverlay">
     <h1 class="game-logo">🍉 FRUIT NINJA</h1>
-    <p class="game-sub">AIRMOUSE KATANA SWORD PHYSICS</p>
-    <button class="play-btn" id="mainPlayBtn" onclick="startGame()">ENTER DOJO</button>
+    <p class="game-sub">AIRMOUSE GYRO SLICER</p>
+    <button class="play-btn" id="mainPlayBtn" onclick="startGame()">START SLICING</button>
     
     <div class="start-qr-card">
       <div class="qr-box">
         <img id="startQrImg" src="" alt="Scan QR Code">
       </div>
       <div class="start-qr-text">
-        <h4>Wield Your Phone Like a Katana</h4>
+        <h4>Control with Your Phone</h4>
         <p>Scan with your phone camera or open this link on mobile:</p>
         <div class="controller-url-badge" id="startQrUrl">Loading link...</div>
       </div>
@@ -447,7 +447,7 @@
 
   <!-- Game Over Overlay -->
   <div id="gameOverOverlay">
-    <h1>BOMB STRUCK!</h1>
+    <h1>GAME OVER</h1>
     <div class="score-summary">
       <div class="score-item">
         <span class="lbl">Final Score</span>
@@ -472,7 +472,8 @@
 
   <script>
   /* ══════════════════════════════════════════════════════════════
-     KATANA SWORD PHYSICS ENGINE (Anti-Jitter + Rigid Blade)
+     FRUIT NINJA — AIRMOUSE GYRO SLICER ENGINE
+     Smooth 1-Euro Anti-Jitter Filter + Glowing Slicer Circle
      ══════════════════════════════════════════════════════════════ */
 
   const canvas = document.getElementById('gameCanvas');
@@ -487,7 +488,7 @@
 
   // ─── 1-Euro Anti-Jitter Filter ───
   class OneEuroFilter {
-    constructor(minCutoff = 1.0, beta = 0.08, dCutoff = 1.0) {
+    constructor(minCutoff = 0.9, beta = 0.08, dCutoff = 1.0) {
       this.minCutoff = minCutoff;
       this.beta = beta;
       this.dCutoff = dCutoff;
@@ -517,34 +518,23 @@
   const filterX = new OneEuroFilter(0.8, 0.06);
   const filterY = new OneEuroFilter(0.8, 0.06);
 
-  // ─── Katana Rigid Body Simulation ───
-  const katana = {
-    // Hilt / Grip Position
-    hx: canvas.width / 2,
-    hy: canvas.height * 0.7,
-    hvx: 0,
-    hvy: 0,
-
-    // Target from Gyro or Mouse
+  // ─── Slicer Circle State (Bigger Glowing Slicer Ring) ───
+  const slicer = {
+    x: canvas.width / 2,
+    y: canvas.height * 0.6,
+    prevX: canvas.width / 2,
+    prevY: canvas.height * 0.6,
     targetX: canvas.width / 2,
-    targetY: canvas.height * 0.7,
-
-    // Blade Length & Angle
-    length: 160,
-    angle: -Math.PI / 4,
-    angularVel: 0,
-    targetAngle: -Math.PI / 4,
-
-    // Tip Position
-    tx: canvas.width / 2 + 160 * Math.cos(-Math.PI / 4),
-    ty: canvas.height * 0.7 + 160 * Math.sin(-Math.PI / 4),
-    prevTx: canvas.width / 2 + 160 * Math.cos(-Math.PI / 4),
-    prevTy: canvas.height * 0.7 + 160 * Math.sin(-Math.PI / 4),
-
-    // Blade speed & active state
-    tipSpeed: 0,
+    targetY: canvas.height * 0.6,
+    vx: 0,
+    vy: 0,
+    radius: 24,           // Little bigger circle
+    baseRadius: 24,
+    activeRadius: 30,
     isSlashing: false,
-    autoSlashSpeedThreshold: 14
+    speed: 0,
+    autoSlashSpeedThreshold: 10,
+    rotation: 0
   };
 
   // ─── Sound System (Synthesised Web Audio) ───
@@ -557,10 +547,10 @@
   }
 
   let lastSwooshTime = 0;
-  function playSwordSwoosh(intensity = 1.0) {
+  function playSliceSwoosh(intensity = 1.0) {
     ensureAudio();
     const now = performance.now();
-    if (now - lastSwooshTime < 90) return; // Debounce
+    if (now - lastSwooshTime < 80) return;
     lastSwooshTime = now;
 
     const ac = audioCtx;
@@ -568,30 +558,29 @@
     const gain = ac.createGain();
     osc.type = 'sawtooth';
 
-    const freqStart = 800 + Math.min(1200, intensity * 25);
-    const freqEnd = 140 + Math.random() * 40;
+    const freqStart = 900 + Math.min(1000, intensity * 20);
+    const freqEnd = 160 + Math.random() * 40;
     osc.frequency.setValueAtTime(freqStart, ac.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(freqEnd, ac.currentTime + 0.13);
+    osc.frequency.exponentialRampToValueAtTime(freqEnd, ac.currentTime + 0.12);
 
-    const volume = Math.min(0.28, 0.1 + intensity * 0.005);
+    const volume = Math.min(0.25, 0.08 + intensity * 0.006);
     gain.gain.setValueAtTime(volume, ac.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.14);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.13);
 
     osc.connect(gain).connect(ac.destination);
     osc.start();
-    osc.stop(ac.currentTime + 0.14);
+    osc.stop(ac.currentTime + 0.13);
   }
 
   function playSliceHitSound() {
     ensureAudio();
     const ac = audioCtx;
-    // Crisp knife sound
     const osc = ac.createOscillator();
     const gain = ac.createGain();
     osc.type = 'triangle';
-    osc.frequency.setValueAtTime(1400, ac.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(220, ac.currentTime + 0.12);
-    gain.gain.setValueAtTime(0.25, ac.currentTime);
+    osc.frequency.setValueAtTime(1200, ac.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(200, ac.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.24, ac.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.13);
     osc.connect(gain).connect(ac.destination);
     osc.start(); osc.stop(ac.currentTime + 0.13);
@@ -602,36 +591,10 @@
     splat.type = 'sine';
     splat.frequency.setValueAtTime(320, ac.currentTime);
     splat.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.1);
-    sGain.gain.setValueAtTime(0.3, ac.currentTime);
+    sGain.gain.setValueAtTime(0.28, ac.currentTime);
     sGain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.11);
     splat.connect(sGain).connect(ac.destination);
     splat.start(); splat.stop(ac.currentTime + 0.11);
-  }
-
-  function playBombSound() {
-    ensureAudio();
-    const ac = audioCtx;
-    const bufSize = ac.sampleRate * 0.5;
-    const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufSize, 1.8);
-    const src = ac.createBufferSource();
-    src.buffer = buf;
-    const gain = ac.createGain();
-    gain.gain.setValueAtTime(0.6, ac.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.5);
-    src.connect(gain).connect(ac.destination);
-    src.start();
-
-    const osc = ac.createOscillator();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(150, ac.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(25, ac.currentTime + 0.45);
-    const g2 = ac.createGain();
-    g2.gain.setValueAtTime(0.5, ac.currentTime);
-    g2.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.45);
-    osc.connect(g2).connect(ac.destination);
-    osc.start(); osc.stop(ac.currentTime + 0.5);
   }
 
   function playComboFanfare(count) {
@@ -659,7 +622,7 @@
   let fruits = [];
   let particles = [];
   let juiceStains = [];
-  let swordRibbonTrail = [];
+  let slicerTrail = [];
   let floatingTexts = [];
 
   let currentSwipeCombo = 0;
@@ -667,45 +630,39 @@
   let spawnInterval = 1100;
   let elapsed = 0;
 
-  // ─── Fruit Archetypes ───
+  // ─── Pure Fruit Archetypes (No Bombs) ───
   const FRUIT_TYPES = [
     {
-      name: 'watermelon', radius: 42,
+      name: 'watermelon', radius: 44,
       skinColor: '#1b5e20', innerColor: '#ff1744',
       sliceColors: ['#ff1744', '#ff5252', '#2e7d32', '#66bb6a']
     },
     {
-      name: 'apple', radius: 32,
+      name: 'apple', radius: 34,
       skinColor: '#d50000', innerColor: '#fff9c4',
       leaf: true, sliceColors: ['#d50000', '#ff5252', '#fff9c4']
     },
     {
-      name: 'orange', radius: 34,
+      name: 'orange', radius: 36,
       skinColor: '#ff6d00', innerColor: '#ffe0b2',
       sliceColors: ['#ff6d00', '#ffa726', '#ffe0b2']
     },
     {
-      name: 'lemon', radius: 28,
+      name: 'lemon', radius: 30,
       skinColor: '#ffd600', innerColor: '#fffde7',
       sliceColors: ['#ffd600', '#ffee58', '#fffde7']
     },
     {
-      name: 'kiwi', radius: 28,
+      name: 'kiwi', radius: 30,
       skinColor: '#5d4037', innerColor: '#7cb342',
       sliceColors: ['#7cb342', '#aed581', '#5d4037']
     },
     {
-      name: 'plum', radius: 30,
+      name: 'plum', radius: 32,
       skinColor: '#4a148c', innerColor: '#ea80fc',
       sliceColors: ['#4a148c', '#8e24aa', '#ea80fc']
     },
   ];
-
-  const BOMB_TYPE = {
-    name: 'bomb', radius: 36,
-    skinColor: '#111', innerColor: '#ff1744',
-    isBomb: true, sliceColors: ['#ff1744', '#ff9100', '#ffea00']
-  };
 
   function showToast(text) {
     const toast = document.getElementById('toast');
@@ -718,12 +675,10 @@
   function spawnFruits() {
     const W = canvas.width;
     const H = canvas.height;
-    const burstSize = Math.min(1 + Math.floor(elapsed / 12000), 5);
-    const bombChance = 0.14 + Math.min(elapsed / 100000, 0.16);
+    const burstSize = Math.min(1 + Math.floor(elapsed / 10000), 5);
 
     for (let i = 0; i < burstSize; i++) {
-      const isBomb = Math.random() < bombChance;
-      const type = isBomb ? BOMB_TYPE : FRUIT_TYPES[Math.floor(Math.random() * FRUIT_TYPES.length)];
+      const type = FRUIT_TYPES[Math.floor(Math.random() * FRUIT_TYPES.length)];
 
       const x = 120 + Math.random() * (W - 240);
       const y = H + type.radius + 30;
@@ -736,7 +691,6 @@
         x, y, vx, vy,
         radius: type.radius,
         type,
-        isBomb,
         rotation: Math.random() * Math.PI * 2,
         rotSpeed: (Math.random() - 0.5) * 0.08,
         sliced: false,
@@ -750,76 +704,39 @@
     ctx.translate(f.x, f.y);
     ctx.rotate(f.rotation);
 
-    if (f.isBomb) {
-      ctx.beginPath();
-      ctx.arc(0, 0, f.radius, 0, Math.PI * 2);
-      const bGrad = ctx.createRadialGradient(-f.radius * 0.3, -f.radius * 0.3, 2, 0, 0, f.radius);
-      bGrad.addColorStop(0, '#475569');
-      bGrad.addColorStop(0.7, '#0f172a');
-      bGrad.addColorStop(1, '#020617');
-      ctx.fillStyle = bGrad;
-      ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, 0, f.radius, 0, Math.PI * 2);
+    const grad = ctx.createRadialGradient(-f.radius * 0.35, -f.radius * 0.35, f.radius * 0.1, 0, 0, f.radius);
+    grad.addColorStop(0, lighten(f.type.skinColor, 40));
+    grad.addColorStop(0.85, f.type.skinColor);
+    grad.addColorStop(1, darken(f.type.skinColor, 30));
+    ctx.fillStyle = grad;
+    ctx.fill();
 
-      ctx.strokeStyle = `rgba(255, 23, 68, ${0.4 + Math.sin(performance.now() * 0.01) * 0.3})`;
-      ctx.lineWidth = 3;
-      ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(-f.radius * 0.35, -f.radius * 0.35, f.radius * 0.35, f.radius * 0.2, -Math.PI / 4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+    ctx.fill();
 
-      ctx.beginPath();
-      ctx.moveTo(0, -f.radius);
-      ctx.quadraticCurveTo(10, -f.radius - 16, 16, -f.radius - 12);
-      ctx.strokeStyle = '#94a3b8';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-
-      const sparkColor = `hsl(${30 + Math.random() * 30}, 100%, 65%)`;
-      ctx.beginPath();
-      ctx.arc(16, -f.radius - 12, 4 + Math.random() * 4, 0, Math.PI * 2);
-      ctx.fillStyle = sparkColor;
-      ctx.shadowColor = sparkColor;
-      ctx.shadowBlur = 12;
-      ctx.fill();
-
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#ef4444';
-      ctx.font = `${f.radius * 0.75}px 'Segoe UI Emoji', sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('💣', 0, 2);
-    } else {
-      ctx.beginPath();
-      ctx.arc(0, 0, f.radius, 0, Math.PI * 2);
-      const grad = ctx.createRadialGradient(-f.radius * 0.35, -f.radius * 0.35, f.radius * 0.1, 0, 0, f.radius);
-      grad.addColorStop(0, lighten(f.type.skinColor, 40));
-      grad.addColorStop(0.85, f.type.skinColor);
-      grad.addColorStop(1, darken(f.type.skinColor, 30));
-      ctx.fillStyle = grad;
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.ellipse(-f.radius * 0.35, -f.radius * 0.35, f.radius * 0.35, f.radius * 0.2, -Math.PI / 4, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
-      ctx.fill();
-
-      if (f.type.name === 'watermelon') {
-        ctx.strokeStyle = 'rgba(10, 50, 15, 0.4)';
-        ctx.lineWidth = 4;
-        for (let s = 0; s < 6; s++) {
-          const ang = (s / 6) * Math.PI * 2;
-          ctx.beginPath();
-          ctx.arc(0, 0, f.radius - 2, ang, ang + 0.35);
-          ctx.stroke();
-        }
-      }
-
-      if (f.type.leaf) {
+    if (f.type.name === 'watermelon') {
+      ctx.strokeStyle = 'rgba(10, 50, 15, 0.4)';
+      ctx.lineWidth = 4;
+      for (let s = 0; s < 6; s++) {
+        const ang = (s / 6) * Math.PI * 2;
         ctx.beginPath();
-        ctx.ellipse(3, -f.radius + 2, 6, 12, -0.4, 0, Math.PI * 2);
-        ctx.fillStyle = '#4ade80';
-        ctx.fill();
-        ctx.strokeStyle = '#22c55e';
-        ctx.lineWidth = 1.5;
+        ctx.arc(0, 0, f.radius - 2, ang, ang + 0.35);
         ctx.stroke();
       }
+    }
+
+    if (f.type.leaf) {
+      ctx.beginPath();
+      ctx.ellipse(3, -f.radius + 2, 6, 12, -0.4, 0, Math.PI * 2);
+      ctx.fillStyle = '#4ade80';
+      ctx.fill();
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
 
     ctx.restore();
@@ -853,18 +770,11 @@
   function sliceFruit(f, swipeDx, swipeDy) {
     f.sliced = true;
 
-    if (f.isBomb) {
-      playBombSound();
-      spawnBombExplosion(f.x, f.y);
-      endGame();
-      return;
-    }
-
     score += 1;
     currentSwipeCombo++;
     playSliceHitSound();
 
-    const sliceAngle = Math.atan2(swipeDy, swipeDx) || katana.angle;
+    const sliceAngle = Math.atan2(swipeDy, swipeDx) || 0;
     const perpAngle = sliceAngle + Math.PI / 2;
 
     for (let dir of [-1, 1]) {
@@ -901,7 +811,7 @@
       });
     }
 
-    // Dynamic Katana Spark Blast on Cut
+    // Dynamic Slicing Spark Burst
     for (let i = 0; i < 16; i++) {
       const sAng = sliceAngle + (Math.random() - 0.5) * 1.5;
       const spd = 6 + Math.random() * 10;
@@ -935,26 +845,6 @@
     });
 
     updateHUD();
-  }
-
-  function spawnBombExplosion(x, y) {
-    particles.push({ type: 'bombFlash', x, y, radius: 250, life: 1, decay: 0.04 });
-    particles.push({ type: 'shockwave', x, y, radius: 10, maxRadius: 350, life: 1, decay: 0.025 });
-
-    for (let i = 0; i < 50; i++) {
-      const ang = Math.random() * Math.PI * 2;
-      const spd = 4 + Math.random() * 14;
-      particles.push({
-        type: 'spark',
-        x, y,
-        vx: Math.cos(ang) * spd,
-        vy: Math.sin(ang) * spd,
-        color: ['#ff1744', '#ff9100', '#ffea00', '#ffffff'][Math.floor(Math.random() * 4)],
-        size: 3 + Math.random() * 5,
-        life: 1,
-        decay: 0.02 + Math.random() * 0.02
-      });
-    }
   }
 
   function updateAndDrawParticles(dt) {
@@ -1010,21 +900,6 @@
         ctx.shadowColor = p.color;
         ctx.shadowBlur = 8;
         ctx.fill();
-      } else if (p.type === 'shockwave') {
-        p.radius += (p.maxRadius - p.radius) * 0.1;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(255, 100, 50, ${p.life * 0.8})`;
-        ctx.lineWidth = 6 * p.life;
-        ctx.stroke();
-      } else if (p.type === 'bombFlash') {
-        const rad = p.radius * (1 + (1 - p.life) * 0.5);
-        const fGrad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad);
-        fGrad.addColorStop(0, `rgba(255, 255, 255, ${p.life * 0.9})`);
-        fGrad.addColorStop(0.4, `rgba(255, 50, 50, ${p.life * 0.5})`);
-        fGrad.addColorStop(1, 'rgba(255, 0, 0, 0)');
-        ctx.fillStyle = fGrad;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
       ctx.restore();
@@ -1051,63 +926,41 @@
     }
   }
 
-  // ─── Katana Physics Simulation Step ───
-  function updateKatanaPhysics(dt, now) {
-    // 1. Spring-Damper Hilt Follower
-    const springK = 0.28;
-    const damperD = 0.72;
+  // ─── Slicer Physics & Motion Step ───
+  function updateSlicerPhysics(dt, now) {
+    slicer.prevX = slicer.x;
+    slicer.prevY = slicer.y;
 
-    const fx = (katana.targetX - katana.hx) * springK;
-    const fy = (katana.targetY - katana.hy) * springK;
+    // Smooth Spring-Damper Follower
+    const springK = 0.32;
+    const damperD = 0.75;
 
-    katana.hvx = (katana.hvx + fx) * damperD;
-    katana.hvy = (katana.hvy + fy) * damperD;
+    const fx = (slicer.targetX - slicer.x) * springK;
+    const fy = (slicer.targetY - slicer.y) * springK;
 
-    katana.hx += katana.hvx;
-    katana.hy += katana.hvy;
+    slicer.vx = (slicer.vx + fx) * damperD;
+    slicer.vy = (slicer.vy + fy) * damperD;
 
-    // 2. Dynamic Katana Orientation & Swing Inertia
-    const hiltSpeed = Math.hypot(katana.hvx, katana.hvy);
-    if (hiltSpeed > 2.5) {
-      // Blade aligns along movement vector with slight lag
-      const moveAngle = Math.atan2(katana.hvy, katana.hvx);
-      katana.targetAngle = moveAngle;
-    }
+    slicer.x += slicer.vx;
+    slicer.y += slicer.vy;
 
-    // Angular Spring-Damper towards targetAngle
-    let angleDiff = katana.targetAngle - katana.angle;
-    // Normalize angle difference to [-PI, PI]
-    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    slicer.speed = Math.hypot(slicer.x - slicer.prevX, slicer.y - slicer.prevY);
+    slicer.rotation += 0.06 + slicer.speed * 0.01;
 
-    const rotSpringK = 0.22;
-    const rotDamperD = 0.65;
-    katana.angularVel = (katana.angularVel + angleDiff * rotSpringK) * rotDamperD;
-    katana.angle += katana.angularVel;
+    // Auto-Slash Detection on Fast Movement
+    const isFastSwing = slicer.speed >= slicer.autoSlashSpeedThreshold;
+    if (isFastSwing) {
+      slicer.isSlashing = true;
+      playSliceSwoosh(slicer.speed);
 
-    // 3. Compute Blade Tip Position
-    katana.prevTx = katana.tx;
-    katana.prevTy = katana.ty;
-
-    katana.tx = katana.hx + Math.cos(katana.angle) * katana.length;
-    katana.ty = katana.hy + Math.sin(katana.angle) * katana.length;
-
-    katana.tipSpeed = Math.hypot(katana.tx - katana.prevTx, katana.ty - katana.prevTy);
-
-    // 4. Auto-Slash Trigger on High Swing Velocity
-    const isHighSpeedSwing = katana.tipSpeed >= katana.autoSlashSpeedThreshold || Math.abs(katana.angularVel) > 0.15;
-    if (isHighSpeedSwing) {
-      katana.isSlashing = true;
-      playSwordSwoosh(katana.tipSpeed);
-
-      // Add Embers peeling off tip
-      if (Math.random() < 0.6) {
+      // Trailing Spark Embers
+      if (Math.random() < 0.5) {
         particles.push({
           type: 'spark',
-          x: katana.tx,
-          y: katana.ty,
-          vx: -Math.cos(katana.angle) * (2 + Math.random() * 4) + (Math.random() - 0.5) * 2,
-          vy: -Math.sin(katana.angle) * (2 + Math.random() * 4) + (Math.random() - 0.5) * 2,
+          x: slicer.x + (Math.random() - 0.5) * 16,
+          y: slicer.y + (Math.random() - 0.5) * 16,
+          vx: -slicer.vx * 0.2 + (Math.random() - 0.5) * 3,
+          vy: -slicer.vy * 0.2 + (Math.random() - 0.5) * 3,
           color: '#00e5ff',
           size: 2 + Math.random() * 3,
           life: 1,
@@ -1116,148 +969,128 @@
       }
     }
 
-    // 5. Sword Ribbon Mesh (Full Blade Sweep)
-    if (katana.isSlashing || hiltSpeed > 3) {
-      swordRibbonTrail.push({
-        hx: katana.hx,
-        hy: katana.hy,
-        tx: katana.tx,
-        ty: katana.ty,
+    // Dynamic Radius Transition
+    const targetRad = slicer.isSlashing ? slicer.activeRadius : slicer.baseRadius;
+    slicer.radius += (targetRad - slicer.radius) * 0.2;
+
+    // Blade Energy Trail
+    if (slicer.isSlashing || slicer.speed > 2.5) {
+      slicerTrail.push({
+        x: slicer.x,
+        y: slicer.y,
         time: now,
-        isPower: katana.isSlashing
+        radius: slicer.radius,
+        isSlashing: slicer.isSlashing
       });
     }
 
     // Fade old trail points
-    while (swordRibbonTrail.length > 0 && now - swordRibbonTrail[0].time > 180) {
-      swordRibbonTrail.shift();
+    while (slicerTrail.length > 0 && now - slicerTrail[0].time > 160) {
+      slicerTrail.shift();
     }
   }
 
-  // ─── Katana Blade & Ribbon Trail Rendering ───
-  function drawSwordRibbonTrail(now) {
-    if (swordRibbonTrail.length < 2) return;
+  // ─── Slicer Energy Trail Rendering ───
+  function drawSlicerTrail(now) {
+    if (slicerTrail.length < 2) return;
 
     ctx.save();
-    for (let i = 1; i < swordRibbonTrail.length; i++) {
-      const p0 = swordRibbonTrail[i - 1];
-      const p1 = swordRibbonTrail[i];
-      const age = (now - p1.time) / 180;
+    for (let i = 1; i < slicerTrail.length; i++) {
+      const p0 = slicerTrail[i - 1];
+      const p1 = slicerTrail[i];
+      const age = (now - p1.time) / 160;
       const alpha = Math.max(0, 1 - age);
+      const width = p1.radius * (1 - age * 0.6) * 1.8;
 
-      // Render ribbon quad between blade edge segments
       ctx.beginPath();
-      ctx.moveTo(p0.hx, p0.hy);
-      ctx.lineTo(p0.tx, p0.ty);
-      ctx.lineTo(p1.tx, p1.ty);
-      ctx.lineTo(p1.hx, p1.hy);
-      ctx.closePath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.lineCap = 'round';
 
-      const trailGrad = ctx.createLinearGradient(p1.hx, p1.hy, p1.tx, p1.ty);
-      if (p1.isPower) {
-        trailGrad.addColorStop(0, `rgba(0, 229, 255, ${alpha * 0.15})`);
-        trailGrad.addColorStop(0.7, `rgba(0, 229, 255, ${alpha * 0.45})`);
-        trailGrad.addColorStop(1, `rgba(255, 255, 255, ${alpha * 0.75})`);
+      if (p1.isSlashing) {
+        ctx.strokeStyle = `rgba(0, 229, 255, ${alpha * 0.75})`;
+        ctx.lineWidth = width;
+        ctx.shadowColor = '#00e5ff';
+        ctx.shadowBlur = 18;
+        ctx.stroke();
+
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
+        ctx.lineWidth = width * 0.45;
+        ctx.shadowBlur = 6;
+        ctx.stroke();
       } else {
-        trailGrad.addColorStop(0, `rgba(148, 163, 184, ${alpha * 0.08})`);
-        trailGrad.addColorStop(1, `rgba(255, 255, 255, ${alpha * 0.3})`);
+        ctx.strokeStyle = `rgba(255, 64, 129, ${alpha * 0.45})`;
+        ctx.lineWidth = width * 0.6;
+        ctx.stroke();
       }
-
-      ctx.fillStyle = trailGrad;
-      ctx.fill();
     }
     ctx.restore();
   }
 
-  function drawKatana() {
+  // ─── Glowing Slicer Circle Rendering (Bigger & Sleek) ───
+  function drawSlicerCircle() {
     ctx.save();
-    ctx.translate(katana.hx, katana.hy);
-    ctx.rotate(katana.angle);
+    ctx.translate(slicer.x, slicer.y);
 
-    const L = katana.length;
+    const R = slicer.radius;
+    const isSlashing = slicer.isSlashing;
 
-    // ── 1. Energy Blade Glow when Slashing ──
-    if (katana.isSlashing) {
-      ctx.beginPath();
-      ctx.moveTo(-10, 0);
-      ctx.quadraticCurveTo(L * 0.5, -12, L + 12, -4);
-      ctx.quadraticCurveTo(L * 0.5, 12, -10, 0);
-      ctx.fillStyle = 'rgba(0, 229, 255, 0.35)';
-      ctx.shadowColor = '#00e5ff';
-      ctx.shadowBlur = 24;
-      ctx.fill();
+    // 1. Outer Radiant Energy Glow
+    const glowGrad = ctx.createRadialGradient(0, 0, R * 0.3, 0, 0, R * 2.2);
+    if (isSlashing) {
+      glowGrad.addColorStop(0, 'rgba(0, 229, 255, 0.45)');
+      glowGrad.addColorStop(0.5, 'rgba(0, 229, 255, 0.18)');
+      glowGrad.addColorStop(1, 'rgba(0, 229, 255, 0)');
+    } else {
+      glowGrad.addColorStop(0, 'rgba(255, 64, 129, 0.35)');
+      glowGrad.addColorStop(0.5, 'rgba(255, 64, 129, 0.12)');
+      glowGrad.addColorStop(1, 'rgba(255, 64, 129, 0)');
     }
-
-    // ── 2. Curved Japanese Steel Blade (Nagasa) ──
+    ctx.fillStyle = glowGrad;
     ctx.beginPath();
-    ctx.moveTo(0, -3);
-    // Upper spine of katana (Mune) with authentic curve
-    ctx.quadraticCurveTo(L * 0.5, -7, L, -1);
-    // Kissaki (Tip)
-    ctx.lineTo(L + 10, 0);
-    // Cutting edge (Ha)
-    ctx.quadraticCurveTo(L * 0.5, 5, 0, 3);
-    ctx.closePath();
-
-    const bladeGrad = ctx.createLinearGradient(0, -6, 0, 6);
-    bladeGrad.addColorStop(0, '#f1f5f9');
-    bladeGrad.addColorStop(0.35, '#cbd5e1');
-    bladeGrad.addColorStop(0.55, '#94a3b8');
-    bladeGrad.addColorStop(0.85, '#e2e8f0');
-    bladeGrad.addColorStop(1, '#ffffff');
-
-    ctx.fillStyle = bladeGrad;
+    ctx.arc(0, 0, R * 2.2, 0, Math.PI * 2);
     ctx.fill();
 
-    // ── 3. Hamon (Wavy differential temper line) ──
-    ctx.beginPath();
-    ctx.moveTo(4, 1);
-    for (let x = 10; x < L; x += 14) {
-      ctx.quadraticCurveTo(x + 5, -2, x + 10, 1.5);
-    }
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
+    // 2. Rotating Orbital Energy Notches
+    ctx.save();
+    ctx.rotate(slicer.rotation);
+    ctx.lineWidth = isSlashing ? 3.5 : 2;
+    ctx.strokeStyle = isSlashing ? '#00e5ff' : '#ff4081';
+    ctx.shadowColor = isSlashing ? '#00e5ff' : '#ff4081';
+    ctx.shadowBlur = isSlashing ? 18 : 10;
 
-    // ── 4. Habaki (Gold Blade Collar) ──
-    ctx.beginPath();
-    ctx.rect(0, -4.5, 10, 9);
-    ctx.fillStyle = '#fbbf24';
-    ctx.fill();
-    ctx.strokeStyle = '#d97706';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // ── 5. Tsuba (Katana Guard) ──
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 5, 16, 0, 0, Math.PI * 2);
-    ctx.fillStyle = '#1e293b';
-    ctx.fill();
-    ctx.strokeStyle = '#fbbf24';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // ── 6. Tsuka (Samurai Wrapped Hilt) ──
-    ctx.beginPath();
-    ctx.rect(-45, -4, 45, 8);
-    ctx.fillStyle = '#0f172a';
-    ctx.fill();
-
-    // Diamond wrap pattern (Ito)
-    for (let x = -40; x <= -10; x += 8) {
+    for (let i = 0; i < 4; i++) {
+      const startAng = (i * Math.PI) / 2 + 0.15;
+      const endAng = startAng + (Math.PI / 2 - 0.3);
       ctx.beginPath();
-      ctx.moveTo(x, -4);
-      ctx.lineTo(x + 4, 0);
-      ctx.lineTo(x, 4);
-      ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth = 1.5;
+      ctx.arc(0, 0, R, startAng, endAng);
       ctx.stroke();
     }
+    ctx.restore();
 
-    // Kashira (Pommel Cap)
+    // 3. Inner Core Disc
     ctx.beginPath();
-    ctx.arc(-45, 0, 4.5, Math.PI / 2, Math.PI * 1.5);
-    ctx.fillStyle = '#fbbf24';
+    ctx.arc(0, 0, R * 0.55, 0, Math.PI * 2);
+    const coreGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, R * 0.55);
+    if (isSlashing) {
+      coreGrad.addColorStop(0, '#ffffff');
+      coreGrad.addColorStop(0.6, '#00e5ff');
+      coreGrad.addColorStop(1, '#0091ea');
+    } else {
+      coreGrad.addColorStop(0, '#ffffff');
+      coreGrad.addColorStop(0.6, '#ff4081');
+      coreGrad.addColorStop(1, '#c2185b');
+    }
+    ctx.fillStyle = coreGrad;
+    ctx.shadowColor = isSlashing ? '#00e5ff' : '#ff4081';
+    ctx.shadowBlur = 14;
+    ctx.fill();
+
+    // 4. Center White Precision Dot
+    ctx.beginPath();
+    ctx.arc(0, 0, 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowBlur = 0;
     ctx.fill();
 
     ctx.restore();
@@ -1285,8 +1118,8 @@
     const dt = Math.min(timestamp - lastTime, 40);
     lastTime = timestamp;
 
-    // 1. Advance Katana Physics
-    updateKatanaPhysics(dt, timestamp);
+    // 1. Advance Slicer Physics
+    updateSlicerPhysics(dt, timestamp);
 
     // 2. Gameplay Loop (Fruits & Slice Detection)
     if (gameRunning) {
@@ -1314,23 +1147,20 @@
         }
       }
 
-      // Slicing Detection (Sword Edge Sweep & Tip Arc)
-      if (katana.isSlashing) {
+      // Slicing Detection (Swept Circle Segment & Direct Intersection)
+      if (slicer.isSlashing || slicer.speed > 3) {
         for (let i = fruits.length - 1; i >= 0; i--) {
           const f = fruits[i];
           if (f.sliced) continue;
 
-          // Check intersection along full blade length (hilt -> tip)
-          const hitBlade = lineSegmentIntersectsCircle(katana.hx, katana.hy, katana.tx, katana.ty, f.x, f.y, f.radius);
-          // Check intersection along sweeping tip arc (prevTip -> tip)
-          const hitTipSweep = lineSegmentIntersectsCircle(katana.prevTx, katana.prevTy, katana.tx, katana.ty, f.x, f.y, f.radius);
+          // Check intersection with swept circle path (prevPos -> currentPos) with slicer radius
+          const hitSwept = lineSegmentIntersectsCircle(slicer.prevX, slicer.prevY, slicer.x, slicer.y, f.x, f.y, f.radius + slicer.radius * 0.8);
 
-          if (hitBlade || hitTipSweep) {
-            const swipeDx = katana.tx - katana.prevTx;
-            const swipeDy = katana.ty - katana.prevTy;
+          if (hitSwept) {
+            const swipeDx = slicer.x - slicer.prevX;
+            const swipeDy = slicer.y - slicer.prevY;
             sliceFruit(f, swipeDx, swipeDy);
             fruits.splice(i, 1);
-            if (!gameRunning) break;
           }
         }
       } else {
@@ -1339,7 +1169,7 @@
           score += bonus;
           playComboFanfare(currentSwipeCombo);
           floatingTexts.push({
-            x: katana.tx, y: katana.ty - 45,
+            x: slicer.x, y: slicer.y - 45,
             text: `🔥 ${currentSwipeCombo}x COMBO! +${bonus}`,
             color: '#00e5ff',
             size: 32,
@@ -1358,8 +1188,8 @@
     if (gameRunning) {
       for (const f of fruits) drawFruit(f);
     }
-    drawSwordRibbonTrail(timestamp);
-    drawKatana();
+    drawSlicerTrail(timestamp);
+    drawSlicerCircle();
 
     requestAnimationFrame(continuousLoop);
   }
@@ -1379,7 +1209,7 @@
     currentSwipeCombo = 0;
     fruits = [];
     particles = [];
-    swordRibbonTrail = [];
+    slicerTrail = [];
     floatingTexts = [];
     gameOver = false;
     gameRunning = true;
@@ -1407,20 +1237,20 @@
     }, 600);
   }
 
-  // ─── PC Mouse Input (Katana Wielder) ───
+  // ─── PC Mouse Input (Slicer) ───
   canvas.addEventListener('mousedown', (e) => {
-    katana.targetX = e.clientX;
-    katana.targetY = e.clientY;
-    katana.isSlashing = true;
+    slicer.targetX = e.clientX;
+    slicer.targetY = e.clientY;
+    slicer.isSlashing = true;
   });
 
   canvas.addEventListener('mousemove', (e) => {
-    katana.targetX = e.clientX;
-    katana.targetY = e.clientY;
+    slicer.targetX = e.clientX;
+    slicer.targetY = e.clientY;
   });
 
   canvas.addEventListener('mouseup', () => {
-    katana.isSlashing = false;
+    slicer.isSlashing = false;
   });
 
   function updateControllerStatus(connected) {
@@ -1428,7 +1258,7 @@
     const label = document.getElementById('statusLabel');
     if (connected) {
       pill.classList.add('connected');
-      label.textContent = '🗡️ Katana Connected';
+      label.textContent = '📱 Phone Connected';
     } else {
       pill.classList.remove('connected');
       label.textContent = 'Connect Phone';
@@ -1454,19 +1284,19 @@
     const rawTargetY = Math.max(0, Math.min(canvas.height, rawNormY * canvas.height));
 
     // 1-Euro Adaptive Filter: Eliminates hand tremor jitter while keeping swings instant
-    katana.targetX = filterX.filter(rawTargetX, now);
-    katana.targetY = filterY.filter(rawTargetY, now);
+    slicer.targetX = filterX.filter(rawTargetX, now);
+    slicer.targetY = filterY.filter(rawTargetY, now);
 
     if (data.isSlashing !== undefined) {
-      katana.isSlashing = data.isSlashing;
+      slicer.isSlashing = data.isSlashing;
     }
   }
 
   function handleIncomingTouch(data) {
     const sens = 2.5;
-    katana.targetX = Math.max(0, Math.min(canvas.width, katana.targetX + data.dx * sens));
-    katana.targetY = Math.max(0, Math.min(canvas.height, katana.targetY + data.dy * sens));
-    katana.isSlashing = true;
+    slicer.targetX = Math.max(0, Math.min(canvas.width, slicer.targetX + data.dx * sens));
+    slicer.targetY = Math.max(0, Math.min(canvas.height, slicer.targetY + data.dy * sens));
+    slicer.isSlashing = true;
   }
 
   // ─── Room ID & Dynamic Deployed URL Detection ───
@@ -1510,7 +1340,7 @@
     peer.on('connection', (conn) => {
       console.log('[P2P PeerJS] Phone connected directly!');
       updateControllerStatus(true);
-      showToast('📱 Katana Sword Paired (P2P)!');
+      showToast('📱 Slicer Controller Paired (P2P)!');
 
       conn.on('data', (msg) => {
         if (msg.type === 'gyro') {
@@ -1518,16 +1348,16 @@
         } else if (msg.type === 'touchmove') {
           handleIncomingTouch(msg);
         } else if (msg.type === 'touchstart') {
-          katana.isSlashing = true;
+          slicer.isSlashing = true;
         } else if (msg.type === 'touchend') {
-          katana.isSlashing = false;
+          slicer.isSlashing = false;
         } else if (msg.type === 'slash_state') {
-          katana.isSlashing = !!msg.active;
+          slicer.isSlashing = !!msg.active;
         } else if (msg.type === 'recenter') {
-          katana.targetX = canvas.width / 2;
-          katana.targetY = canvas.height * 0.7;
-          katana.hx = canvas.width / 2;
-          katana.hy = canvas.height * 0.7;
+          slicer.targetX = canvas.width / 2;
+          slicer.targetY = canvas.height * 0.6;
+          slicer.x = canvas.width / 2;
+          slicer.y = canvas.height * 0.6;
           showToast('🎯 Aim Re-Centered');
         } else if (msg.type === 'action' && msg.action === 'start_game') {
           startGame();
@@ -1549,20 +1379,20 @@
       socket.on('connect', () => { socket.emit('game:register'); });
       socket.on('controller:connected', () => {
         updateControllerStatus(true);
-        showToast('📱 Katana Sword Paired!');
+        showToast('📱 Phone Controller Paired!');
       });
       socket.on('controller:disconnected', () => { updateControllerStatus(false); });
       socket.on('controller:count', (count) => { updateControllerStatus(count > 0); });
       socket.on('remote:gyro', handleIncomingGyro);
       socket.on('remote:touchmove', handleIncomingTouch);
-      socket.on('remote:touchstart', () => { katana.isSlashing = true; });
-      socket.on('remote:touchend', () => { katana.isSlashing = false; });
-      socket.on('remote:slash_state', (d) => { katana.isSlashing = !!d.active; });
+      socket.on('remote:touchstart', () => { slicer.isSlashing = true; });
+      socket.on('remote:touchend', () => { slicer.isSlashing = false; });
+      socket.on('remote:slash_state', (d) => { slicer.isSlashing = !!d.active; });
       socket.on('remote:recenter', () => {
-        katana.targetX = canvas.width / 2;
-        katana.targetY = canvas.height * 0.7;
-        katana.hx = canvas.width / 2;
-        katana.hy = canvas.height * 0.7;
+        slicer.targetX = canvas.width / 2;
+        slicer.targetY = canvas.height * 0.6;
+        slicer.x = canvas.width / 2;
+        slicer.y = canvas.height * 0.6;
         showToast('🎯 Aim Re-Centered');
       });
       socket.on('remote:action', (d) => { if (d.type === 'start_game') startGame(); });
