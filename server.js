@@ -33,18 +33,22 @@ app.get('/controller', (req, res) => {
 
 // --- QR Code endpoint (returns data-URL PNG for both HTTP & HTTPS) ---
 app.get('/api/qrcode', async (req, res) => {
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const proto = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
   const ip = getLocalIP();
-  // Provide HTTPS by default for sensor permissions, plus HTTP
-  const httpsUrl = `https://${ip}:${HTTPS_PORT}/controller`;
+  
+  let targetUrl;
+  if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+    targetUrl = `${proto}://${host}/controller`;
+  } else {
+    targetUrl = `https://${ip}:${HTTPS_PORT}/controller`;
+  }
+
+  const httpsUrl = targetUrl;
   const httpUrl = `http://${ip}:${HTTP_PORT}/controller`;
   
   try {
-    const httpsQr = await QRCode.toDataURL(httpsUrl, {
-      width: 320,
-      margin: 1,
-      color: { dark: '#000000', light: '#ffffff' }
-    });
-    const httpQr = await QRCode.toDataURL(httpUrl, {
+    const dataUrl = await QRCode.toDataURL(targetUrl, {
       width: 320,
       margin: 1,
       color: { dark: '#000000', light: '#ffffff' }
@@ -52,12 +56,10 @@ app.get('/api/qrcode', async (req, res) => {
     
     res.json({
       ip,
-      url: httpsUrl,
-      dataUrl: httpsQr,
+      url: targetUrl,
+      dataUrl,
       httpsUrl,
-      httpsQr,
-      httpUrl,
-      httpQr
+      httpUrl
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to generate QR code' });

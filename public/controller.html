@@ -28,25 +28,6 @@
       position: relative;
     }
 
-    /* ─── HTTPS Insecure Context Warning ─── */
-    #httpsWarning {
-      display: none;
-      background: linear-gradient(135deg, #d97706, #b45309);
-      color: #fff;
-      padding: 10px 14px;
-      font-size: 12px;
-      font-weight: 700;
-      text-align: center;
-      z-index: 100;
-      line-height: 1.4;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-    }
-    #httpsWarning a {
-      color: #fef08a;
-      text-decoration: underline;
-      margin-left: 4px;
-    }
-
     /* ─── Top Bar ─── */
     .top-bar {
       display: flex;
@@ -391,24 +372,9 @@
     }
 
     .grant-btn:active { transform: scale(0.96); }
-
-    /* Canvas swipe trail on phone */
-    #phoneTrailCanvas {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-    }
   </style>
 </head>
 <body>
-
-  <!-- HTTPS Insecure warning if opened over plain HTTP on remote phone -->
-  <div id="httpsWarning">
-    ⚠️ Gyro requires HTTPS on mobile browsers.
-    <a href="#" id="switchHttpsLink">Tap to switch to HTTPS</a>
-  </div>
 
   <!-- iOS / Sensor Activation Modal -->
   <div id="permissionModal">
@@ -460,7 +426,6 @@
       <div class="blade-icon" id="bladeIcon">⚔️</div>
       <div class="trigger-label" id="triggerTitle">Hold to Slice</div>
       <div class="trigger-subtext" id="triggerDesc">Aim by tilting your phone. Hold thumb down to draw blade & cut!</div>
-      <canvas id="phoneTrailCanvas"></canvas>
     </div>
 
     <!-- Settings & Sensitivity -->
@@ -486,15 +451,15 @@
 
   </div>
 
-  <!-- Socket.io -->
-  <script src="/socket.io/socket.io.js"></script>
+  <!-- PeerJS (WebRTC P2P for Vercel/Cloud Deployments) -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <!-- Socket.io (for local Node server) -->
+  <script src="/socket.io/socket.io.js" onerror="window.noSocketIo=true"></script>
 
   <script>
   /* ══════════════════════════════════════════════════════════════
      AIRMOUSE MOBILE GYRO & TOUCH ENGINE
      ══════════════════════════════════════════════════════════════ */
-
-  const socket = io();
 
   // DOM Elements
   const connBadge = document.getElementById('connBadge');
@@ -510,8 +475,6 @@
   const crosshairDot = document.getElementById('crosshairDot');
   const gyroDebug = document.getElementById('gyroDebug');
   const modeBadge = document.getElementById('modeBadge');
-  const httpsWarning = document.getElementById('httpsWarning');
-  const switchHttpsLink = document.getElementById('switchHttpsLink');
 
   let isConnected = false;
   let sensorsActive = false;
@@ -528,7 +491,7 @@
   let centerGamma = 0;
   let centerAlpha = 0;
 
-  // Current Smoothed Angles
+  // Smoothed Angles
   let currentBeta = 45;
   let currentGamma = 0;
   let currentAlpha = 0;
@@ -536,39 +499,79 @@
   // Motion rate & acceleration
   let lastRotRate = { alpha: 0, beta: 0, gamma: 0 };
   let lastAccel = { x: 0, y: 0, z: 0 };
-
-  // Touch tracking for swipe fallback
   let lastTouchPos = null;
-
-  // ─── HTTPS Insecure Context Handling ───
-  if (location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-    httpsWarning.style.display = 'block';
-    const httpsUrl = `https://${location.hostname}:3443${location.pathname}`;
-    switchHttpsLink.href = httpsUrl;
-  }
-
-  // ─── Socket Events ───
-  socket.on('connect', () => {
-    socket.emit('phone:connect');
-  });
-
-  socket.on('phone:paired', (data) => {
-    isConnected = true;
-    connBadge.classList.add('connected');
-    connText.textContent = 'Connected';
-    hapticPulse(40);
-  });
-
-  socket.on('disconnect', () => {
-    isConnected = false;
-    connBadge.classList.remove('connected');
-    connText.textContent = 'Disconnected';
-  });
 
   function hapticPulse(ms = 20) {
     if (navigator.vibrate) {
       try { navigator.vibrate(ms); } catch (e) {}
     }
+  }
+
+  function setConnectedStatus(status) {
+    isConnected = status;
+    if (status) {
+      connBadge.classList.add('connected');
+      connText.textContent = 'Connected';
+      hapticPulse(40);
+    } else {
+      connBadge.classList.remove('connected');
+      connText.textContent = 'Disconnected';
+    }
+  }
+
+  // ─── Dual Protocol Transmit (WebRTC DataChannel + Socket.io) ───
+  let peerConnection = null;
+  let socket = null;
+
+  function sendControllerMsg(msg) {
+    // 1. WebRTC DataChannel (Ultra-Low Latency UDP)
+    if (peerConnection && peerConnection.open) {
+      peerConnection.send(msg);
+    }
+    // 2. Socket.io
+    if (socket && socket.connected) {
+      if (msg.type === 'gyro') socket.emit('phone:gyro', msg);
+      else if (msg.type === 'touchmove') socket.emit('phone:touchmove', msg);
+      else if (msg.type === 'touchstart') socket.emit('phone:touchstart', msg);
+      else if (msg.type === 'touchend') socket.emit('phone:touchend', msg);
+      else if (msg.type === 'slash_state') socket.emit('phone:slash_state', msg);
+      else if (msg.type === 'recenter') socket.emit('phone:recenter', msg);
+      else if (msg.type === 'action') socket.emit('phone:action', { type: msg.action });
+    }
+  }
+
+  // ─── WebRTC PeerJS Setup (Works on Vercel) ───
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetRoomId = urlParams.get('room') || window.location.hash.replace('#', '');
+
+  if (targetRoomId && typeof Peer !== 'undefined') {
+    try {
+      const myPeer = new Peer();
+      myPeer.on('open', (myId) => {
+        console.log('[P2P PeerJS] Connecting to room:', targetRoomId);
+        const conn = myPeer.connect(targetRoomId, { reliable: false });
+        conn.on('open', () => {
+          console.log('[P2P PeerJS] Connected to PC!');
+          peerConnection = conn;
+          setConnectedStatus(true);
+        });
+        conn.on('close', () => {
+          setConnectedStatus(false);
+        });
+      });
+    } catch (e) {
+      console.warn('PeerJS init error:', e);
+    }
+  }
+
+  // ─── Socket.io Fallback ───
+  if (typeof io !== 'undefined') {
+    try {
+      socket = io();
+      socket.on('connect', () => { socket.emit('phone:connect'); });
+      socket.on('phone:paired', () => { setConnectedStatus(true); });
+      socket.on('disconnect', () => { setConnectedStatus(false); });
+    } catch (e) {}
   }
 
   // ─── Permission & Sensor Initialization ───
@@ -579,7 +582,6 @@
   });
 
   async function requestAndInitSensors() {
-    // 1. iOS DeviceOrientation & DeviceMotion
     if (typeof DeviceOrientationEvent !== 'undefined' &&
         typeof DeviceOrientationEvent.requestPermission === 'function') {
       try {
@@ -603,21 +605,18 @@
   function attachSensorListeners() {
     sensorsActive = true;
 
-    // Listen to standard and absolute orientation
     window.addEventListener('deviceorientation', handleOrientation, true);
     if ('ondeviceorientationabsolute' in window) {
       window.addEventListener('deviceorientationabsolute', handleOrientation, true);
     }
     window.addEventListener('devicemotion', handleMotion, true);
 
-    // Initial center calibration after 250ms
     setTimeout(recenterAim, 250);
 
-    // Watchdog check: if no sensor events after 2.5s, update debug message
     setTimeout(() => {
       if (sensorEventCount === 0) {
-        gyroDebug.textContent = '⚠️ Swipe Touch Mode';
-        document.getElementById('sensorStatusTitle').textContent = 'Touch Trackpad Active';
+        gyroDebug.textContent = 'Touch Trackpad';
+        document.getElementById('sensorStatusTitle').textContent = 'Touch Mode Active';
       }
     }, 2500);
   }
@@ -631,17 +630,14 @@
     const rawGamma = e.gamma !== null ? e.gamma : 0;
     const rawAlpha = e.alpha !== null ? e.alpha : 0;
 
-    // Filter & Smooth
     const smoothFactor = 0.35;
     currentBeta += (rawBeta - currentBeta) * smoothFactor;
     currentGamma += (rawGamma - currentGamma) * smoothFactor;
     currentAlpha += (rawAlpha - currentAlpha) * smoothFactor;
 
-    // Relative tilt offsets
-    const deltaPitch = currentBeta - centerBeta;   // Up / Down
-    const deltaRoll = currentGamma - centerGamma;   // Left / Right
+    const deltaPitch = currentBeta - centerBeta;
+    const deltaRoll = currentGamma - centerGamma;
 
-    // Visual Horizon
     horizonLine.style.transform = `rotate(${-deltaRoll}deg)`;
     const clampedPitch = Math.max(-18, Math.min(18, deltaPitch));
     const clampedRoll = Math.max(-18, Math.min(18, deltaRoll));
@@ -650,9 +646,9 @@
 
     updateSlashState();
 
-    // Stream to PC if in gyro or swing mode
-    if (isConnected && currentMode !== 'touch') {
-      socket.emit('phone:gyro', {
+    if (currentMode !== 'touch') {
+      sendControllerMsg({
+        type: 'gyro',
         deltaPitch,
         deltaRoll,
         rawBeta: currentBeta,
@@ -665,7 +661,7 @@
     }
   }
 
-  // ─── Motion Handler (for swing velocity & acceleration) ───
+  // ─── Motion Handler (Swing Detection) ───
   function handleMotion(e) {
     if (e.rotationRate) {
       lastRotRate = {
@@ -696,7 +692,6 @@
     }
   }
 
-  // ─── Update Slash State ───
   function updateSlashState() {
     if (currentMode === 'gyro' || currentMode === 'touch') {
       isSlashing = isTouching;
@@ -720,55 +715,45 @@
     }
   }
 
-  // ─── Re-Center Aim ───
+  // ─── Actions ───
   function recenterAim() {
     centerBeta = currentBeta;
     centerGamma = currentGamma;
     centerAlpha = currentAlpha;
     hapticPulse(30);
-
-    if (isConnected) {
-      socket.emit('phone:recenter', {});
-    }
+    sendControllerMsg({ type: 'recenter' });
   }
 
   recenterBtn.addEventListener('click', recenterAim);
 
-  // ─── Play / Restart Action Button ───
   playBtn.addEventListener('click', () => {
     hapticPulse(40);
-    if (isConnected) {
-      socket.emit('phone:action', { type: 'start_game' });
-    }
+    sendControllerMsg({ type: 'action', action: 'start_game' });
   });
 
-  // ─── Touchpad Events (Both Gyro Trigger & Touch Drag Fallback) ───
+  // ─── Touchpad Events ───
   triggerPad.addEventListener('touchstart', (e) => {
     e.preventDefault();
     isTouching = true;
     const t = e.touches[0];
     lastTouchPos = { x: t.clientX, y: t.clientY };
-
     updateSlashState();
     hapticPulse(25);
 
-    if (isConnected) {
-      socket.emit('phone:slash_state', { active: true });
-      socket.emit('phone:touchstart', {});
-    }
+    sendControllerMsg({ type: 'slash_state', active: true });
+    sendControllerMsg({ type: 'touchstart' });
   }, { passive: false });
 
   triggerPad.addEventListener('touchmove', (e) => {
     e.preventDefault();
     const t = e.touches[0];
 
-    if (lastTouchPos && isConnected) {
+    if (lastTouchPos) {
       const dx = (t.clientX - lastTouchPos.x) * sensitivityMultiplier;
       const dy = (t.clientY - lastTouchPos.y) * sensitivityMultiplier;
 
-      // In touch mode, send coordinate deltas
       if (currentMode === 'touch') {
-        socket.emit('phone:touchmove', { dx, dy });
+        sendControllerMsg({ type: 'touchmove', dx, dy });
       }
     }
 
@@ -781,10 +766,8 @@
     lastTouchPos = null;
     updateSlashState();
 
-    if (isConnected) {
-      socket.emit('phone:slash_state', { active: false });
-      socket.emit('phone:touchend', {});
-    }
+    sendControllerMsg({ type: 'slash_state', active: false });
+    sendControllerMsg({ type: 'touchend' });
   }, { passive: false });
 
   triggerPad.addEventListener('touchcancel', (e) => {
@@ -793,13 +776,11 @@
     lastTouchPos = null;
     updateSlashState();
 
-    if (isConnected) {
-      socket.emit('phone:slash_state', { active: false });
-      socket.emit('phone:touchend', {});
-    }
+    sendControllerMsg({ type: 'slash_state', active: false });
+    sendControllerMsg({ type: 'touchend' });
   }, { passive: false });
 
-  // ─── Mode Selector ───
+  // ─── Mode & Sensitivity Selectors ───
   document.querySelectorAll('#modeControl [data-mode]').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#modeControl [data-mode]').forEach(b => b.classList.remove('active'));
@@ -820,7 +801,6 @@
     });
   });
 
-  // ─── Sensitivity Selector ───
   document.querySelectorAll('#sensControl [data-sens]').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#sensControl [data-sens]').forEach(b => b.classList.remove('active'));
@@ -830,12 +810,10 @@
     });
   });
 
-  // ─── Auto-start sensor check on load ───
   window.addEventListener('load', () => {
     const isIOS = typeof DeviceOrientationEvent !== 'undefined' &&
                   typeof DeviceOrientationEvent.requestPermission === 'function';
     if (!isIOS) {
-      // Auto-init on Android / Desktop without blocking modal
       permissionModal.classList.add('hidden');
       attachSensorListeners();
     }
