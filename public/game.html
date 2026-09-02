@@ -1,0 +1,1345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fruit Ninja — AirMouse Gyro Edition</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Outfit:wght@400;600;800;900&display=swap" rel="stylesheet">
+  <style>
+    /* ───────── Reset & Base ───────── */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #08070d;
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+      user-select: none;
+    }
+
+    /* ───────── Canvas ───────── */
+    #gameCanvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      cursor: none;
+    }
+
+    /* ───────── HUD ───────── */
+    #hud {
+      position: fixed; top: 0; left: 0; right: 0;
+      display: flex; justify-content: space-between; align-items: flex-start;
+      padding: 24px 36px;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .hud-box {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .hud-label {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #94a3b8;
+    }
+
+    .hud-val {
+      font-family: 'Cinzel', serif;
+      font-size: 42px;
+      font-weight: 900;
+      color: #fff;
+      text-shadow: 0 4px 20px rgba(255, 215, 0, 0.4);
+      line-height: 1;
+    }
+
+    .hud-val.score {
+      background: linear-gradient(135deg, #ffd700, #ff8c00);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hud-val.best {
+      color: #e2e8f0;
+      font-size: 28px;
+    }
+
+    /* ───────── Connection & Gyro Indicator ───────── */
+    #statusPill {
+      position: fixed; top: 24px; left: 50%; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 20px;
+      border-radius: 30px;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 13px;
+      font-weight: 700;
+      color: #94a3b8;
+      z-index: 10;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+      transition: all .3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    #statusPill.connected {
+      color: #00e676;
+      border-color: rgba(0, 230, 118, 0.3);
+      box-shadow: 0 0 20px rgba(0, 230, 118, 0.2);
+    }
+
+    #statusDot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: #64748b;
+      transition: all .3s;
+    }
+
+    #statusPill.connected #statusDot {
+      background: #00e676;
+      box-shadow: 0 0 10px #00e676;
+    }
+
+    /* ───────── Calibration Toast ───────── */
+    #toast {
+      position: fixed; top: 75px; left: 50%; transform: translateX(-50%) translateY(-20px);
+      background: rgba(0, 229, 255, 0.2);
+      border: 1px solid #00e5ff;
+      color: #00e5ff;
+      padding: 6px 18px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 20;
+    }
+
+    #toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    /* ───────── QR Overlay ───────── */
+    #qrOverlay {
+      position: fixed; bottom: 24px; right: 24px;
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      padding: 16px 18px;
+      border-radius: 20px;
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255,255,255,.08);
+      z-index: 10;
+      transition: all .4s;
+    }
+
+    #qrOverlay:hover {
+      background: rgba(15, 23, 42, 0.9);
+      border-color: rgba(0, 229, 255, 0.3);
+    }
+
+    #qrOverlay img {
+      width: 120px; height: 120px;
+      border-radius: 12px;
+      background: #fff;
+      padding: 4px;
+    }
+
+    #qrOverlay .label {
+      color: #cbd5e1;
+      font-size: 11px;
+      font-weight: 700;
+      text-align: center;
+      max-width: 140px;
+      line-height: 1.3;
+    }
+
+    #qrOverlay .url {
+      color: #38bdf8;
+      font-size: 10px;
+      font-weight: 600;
+      font-family: monospace;
+      text-align: center;
+    }
+
+    /* ───────── Start Screen ───────── */
+    #startOverlay {
+      position: fixed; inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: radial-gradient(circle at center, rgba(30, 20, 50, 0.95), rgba(8, 7, 13, 0.98));
+      backdrop-filter: blur(20px);
+      z-index: 100;
+      transition: opacity 0.4s ease;
+    }
+
+    #startOverlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .game-logo {
+      font-family: 'Cinzel', serif;
+      font-size: 76px;
+      font-weight: 900;
+      background: linear-gradient(135deg, #ff416c, #ff4b2b, #f9d423);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 10px 40px rgba(255, 75, 43, 0.4);
+      letter-spacing: 2px;
+      margin-bottom: 6px;
+      text-align: center;
+    }
+
+    .game-sub {
+      color: #94a3b8;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      margin-bottom: 36px;
+    }
+
+    .play-btn {
+      padding: 18px 64px;
+      font-size: 24px;
+      font-weight: 900;
+      font-family: 'Cinzel', serif;
+      letter-spacing: 2px;
+      color: #fff;
+      border: none;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #ff4b2b, #ff416c);
+      cursor: pointer;
+      box-shadow: 0 10px 30px rgba(255, 65, 108, 0.5);
+      transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    .play-btn:hover {
+      transform: scale(1.06) translateY(-3px);
+      box-shadow: 0 16px 40px rgba(255, 65, 108, 0.7);
+    }
+
+    .play-btn:active {
+      transform: scale(0.98);
+    }
+
+    .start-qr-card {
+      margin-top: 32px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      background: rgba(15, 23, 42, 0.8);
+      backdrop-filter: blur(16px);
+      padding: 16px 24px;
+      border-radius: 22px;
+      border: 1px solid rgba(0, 229, 255, 0.25);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+
+    .start-qr-card .qr-box {
+      width: 110px;
+      height: 110px;
+      background: #ffffff;
+      padding: 6px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+      flex-shrink: 0;
+    }
+
+    .start-qr-card img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+    }
+
+    .start-qr-text {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .start-qr-text h4 {
+      font-size: 16px;
+      font-weight: 800;
+      color: #f8fafc;
+      letter-spacing: 0.3px;
+    }
+
+    .start-qr-text p {
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.4;
+      max-width: 240px;
+    }
+
+    .controller-url-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(0, 229, 255, 0.12);
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      padding: 5px 12px;
+      border-radius: 10px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 12px;
+      color: #38bdf8;
+      font-weight: 700;
+      margin-top: 6px;
+      width: fit-content;
+    }
+
+    /* ───────── Game Over Screen ───────── */
+    #gameOverOverlay {
+      position: fixed; inset: 0;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: radial-gradient(circle at center, rgba(50, 10, 20, 0.95), rgba(8, 7, 13, 0.98));
+      backdrop-filter: blur(20px);
+      z-index: 100;
+    }
+
+    #gameOverOverlay.visible { display: flex; }
+
+    #gameOverOverlay h1 {
+      font-family: 'Cinzel', serif;
+      font-size: 72px;
+      font-weight: 900;
+      background: linear-gradient(135deg, #ff0844, #ffb199);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 10px 40px rgba(255, 8, 68, 0.5);
+      margin-bottom: 16px;
+    }
+
+    .score-summary {
+      display: flex;
+      gap: 40px;
+      margin-bottom: 36px;
+    }
+
+    .score-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .score-item .lbl {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: #94a3b8;
+      text-transform: uppercase;
+    }
+
+    .score-item .num {
+      font-family: 'Cinzel', serif;
+      font-size: 48px;
+      font-weight: 900;
+      color: #fff;
+    }
+
+    .restart-btn {
+      padding: 16px 56px;
+      font-size: 22px;
+      font-weight: 900;
+      font-family: 'Cinzel', serif;
+      letter-spacing: 2px;
+      color: #fff;
+      border: none;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #00e676, #00b0ff);
+      cursor: pointer;
+      box-shadow: 0 10px 30px rgba(0, 230, 118, 0.4);
+      transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    .restart-btn:hover {
+      transform: scale(1.06) translateY(-3px);
+      box-shadow: 0 16px 40px rgba(0, 230, 118, 0.6);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hud-box">
+      <span class="hud-label">Score</span>
+      <span class="hud-val score" id="scoreDisplay">0</span>
+    </div>
+    <div class="hud-box" style="align-items: flex-end;">
+      <span class="hud-label">High Score</span>
+      <span class="hud-val best" id="bestDisplay">0</span>
+    </div>
+  </div>
+
+  <!-- Connection & Gyro Status -->
+  <div id="statusPill">
+    <div id="statusDot"></div>
+    <span id="statusLabel">Connect Phone</span>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast">🎯 Aim Calibrated</div>
+
+  <!-- QR Code overlay -->
+  <div id="qrOverlay">
+    <div style="background:#fff; border-radius:12px; padding:4px; width:100px; height:100px; display:flex; align-items:center; justify-content:center;">
+      <img id="qrImg" src="" alt="Scan to Connect" style="width:100%; height:100%; object-fit:contain;">
+    </div>
+    <div class="label">Scan for Gyro Sword</div>
+    <div class="url" id="qrUrl"></div>
+  </div>
+
+  <!-- Start Overlay -->
+  <div id="startOverlay">
+    <h1 class="game-logo">🍉 FRUIT NINJA</h1>
+    <p class="game-sub">AIRMOUSE GYROSCOPE EDITION</p>
+    <button class="play-btn" onclick="startGame()">ENTER DOJO</button>
+    <div class="start-qr-card">
+      <div class="qr-box">
+        <img id="startQrImg" src="" alt="Scan QR Code">
+      </div>
+      <div class="start-qr-text">
+        <h4>Wield Your Phone Like a Katana</h4>
+        <p>Scan with your phone camera or open this URL on your phone:</p>
+        <div class="controller-url-badge" id="startQrUrl">Loading controller link...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Over Overlay -->
+  <div id="gameOverOverlay">
+    <h1>BOMB STRUCK!</h1>
+    <div class="score-summary">
+      <div class="score-item">
+        <span class="lbl">Final Score</span>
+        <span class="num score" id="finalScore">0</span>
+      </div>
+      <div class="score-item">
+        <span class="lbl">Best Score</span>
+        <span class="num best" id="finalBest">0</span>
+      </div>
+    </div>
+    <button class="restart-btn" onclick="startGame()">PLAY AGAIN</button>
+  </div>
+
+  <!-- Game Canvas -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- Socket.io -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <script>
+  /* ══════════════════════════════════════════════════════════════
+     FRUIT NINJA — AIRMOUSE GYRO ENGINE
+     ══════════════════════════════════════════════════════════════ */
+
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ─── Sound System (Synthesised Web Audio) ───
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  let audioCtx;
+
+  function ensureAudio() {
+    if (!audioCtx) audioCtx = new AudioCtx();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  }
+
+  function playSliceSound() {
+    ensureAudio();
+    const ac = audioCtx;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(1100, ac.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(180, ac.currentTime + 0.14);
+    gain.gain.setValueAtTime(0.22, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.16);
+    osc.connect(gain).connect(ac.destination);
+    osc.start(); osc.stop(ac.currentTime + 0.16);
+  }
+
+  function playSplatSound() {
+    ensureAudio();
+    const ac = audioCtx;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(320, ac.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.3, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.12);
+    osc.connect(gain).connect(ac.destination);
+    osc.start(); osc.stop(ac.currentTime + 0.12);
+  }
+
+  function playBombSound() {
+    ensureAudio();
+    const ac = audioCtx;
+    // White noise explosion
+    const bufSize = ac.sampleRate * 0.5;
+    const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufSize, 1.8);
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.6, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.5);
+    src.connect(gain).connect(ac.destination);
+    src.start();
+    // Sub rumble
+    const osc = ac.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(150, ac.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(25, ac.currentTime + 0.45);
+    const g2 = ac.createGain();
+    g2.gain.setValueAtTime(0.5, ac.currentTime);
+    g2.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.45);
+    osc.connect(g2).connect(ac.destination);
+    osc.start(); osc.stop(ac.currentTime + 0.5);
+  }
+
+  function playComboFanfare(count) {
+    ensureAudio();
+    const ac = audioCtx;
+    [440, 554, 659, 880].slice(0, count).forEach((freq, idx) => {
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, ac.currentTime + idx * 0.06);
+      gain.gain.setValueAtTime(0.18, ac.currentTime + idx * 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + idx * 0.06 + 0.25);
+      osc.connect(gain).connect(ac.destination);
+      osc.start(ac.currentTime + idx * 0.06);
+      osc.stop(ac.currentTime + idx * 0.06 + 0.26);
+    });
+  }
+
+  // ─── Game State ───
+  let score = 0;
+  let bestScore = parseInt(localStorage.getItem('fruitNinja_best') || '0', 10);
+  let gameRunning = false;
+  let gameOver = false;
+
+  let fruits = [];
+  let particles = [];
+  let juiceStains = [];
+  let bladeTrail = [];
+  let floatingTexts = [];
+
+  // Gyro / Cursor System
+  let cursor = {
+    x: canvas.width / 2,
+    y: canvas.height / 2,
+    targetX: canvas.width / 2,
+    targetY: canvas.height / 2,
+    active: false,
+    isGyro: false
+  };
+  let prevCursor = { x: cursor.x, y: cursor.y };
+
+  // Swipe combo state
+  let currentSwipeCombo = 0;
+  let spawnTimer = 0;
+  let spawnInterval = 1100;
+  let elapsed = 0;
+
+  // ─── Fruit Archetypes ───
+  const FRUIT_TYPES = [
+    {
+      name: 'watermelon', radius: 42,
+      skinColor: '#1b5e20', innerColor: '#ff1744',
+      seeds: true, sliceColors: ['#ff1744', '#ff5252', '#2e7d32', '#66bb6a']
+    },
+    {
+      name: 'apple', radius: 32,
+      skinColor: '#d50000', innerColor: '#fff9c4',
+      leaf: true, sliceColors: ['#d50000', '#ff5252', '#fff9c4']
+    },
+    {
+      name: 'orange', radius: 34,
+      skinColor: '#ff6d00', innerColor: '#ffe0b2',
+      citrus: true, sliceColors: ['#ff6d00', '#ffa726', '#ffe0b2']
+    },
+    {
+      name: 'lemon', radius: 28,
+      skinColor: '#ffd600', innerColor: '#fffde7',
+      citrus: true, sliceColors: ['#ffd600', '#ffee58', '#fffde7']
+    },
+    {
+      name: 'kiwi', radius: 28,
+      skinColor: '#5d4037', innerColor: '#7cb342',
+      kiwiCore: true, sliceColors: ['#7cb342', '#aed581', '#5d4037']
+    },
+    {
+      name: 'plum', radius: 30,
+      skinColor: '#4a148c', innerColor: '#ea80fc',
+      sliceColors: ['#4a148c', '#8e24aa', '#ea80fc']
+    },
+  ];
+
+  const BOMB_TYPE = {
+    name: 'bomb', radius: 36,
+    skinColor: '#111', innerColor: '#ff1744',
+    isBomb: true, sliceColors: ['#ff1744', '#ff9100', '#ffea00']
+  };
+
+  // ─── Toast Notification ───
+  function showToast(text) {
+    const toast = document.getElementById('toast');
+    toast.textContent = text;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+
+  // ─── Fruit Spawner ───
+  function spawnFruits() {
+    const W = canvas.width;
+    const H = canvas.height;
+    const burstSize = Math.min(1 + Math.floor(elapsed / 12000), 5);
+    const bombChance = 0.14 + Math.min(elapsed / 100000, 0.16);
+
+    for (let i = 0; i < burstSize; i++) {
+      const isBomb = Math.random() < bombChance;
+      const type = isBomb ? BOMB_TYPE : FRUIT_TYPES[Math.floor(Math.random() * FRUIT_TYPES.length)];
+
+      const x = 120 + Math.random() * (W - 240);
+      const y = H + type.radius + 30;
+
+      // Arc towards screen center
+      const targetCenterX = W / 2 + (Math.random() - 0.5) * (W * 0.4);
+      const vx = (targetCenterX - x) * (0.008 + Math.random() * 0.004);
+      const vy = -(13 + Math.random() * 5);
+
+      fruits.push({
+        x, y, vx, vy,
+        radius: type.radius,
+        type,
+        isBomb,
+        rotation: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 0.08,
+        sliced: false,
+      });
+    }
+  }
+
+  // ─── Rendering: Beautiful Fruits ───
+  function drawFruit(f) {
+    ctx.save();
+    ctx.translate(f.x, f.y);
+    ctx.rotate(f.rotation);
+
+    if (f.isBomb) {
+      // Bomb sphere
+      ctx.beginPath();
+      ctx.arc(0, 0, f.radius, 0, Math.PI * 2);
+      const bGrad = ctx.createRadialGradient(-f.radius * 0.3, -f.radius * 0.3, 2, 0, 0, f.radius);
+      bGrad.addColorStop(0, '#475569');
+      bGrad.addColorStop(0.7, '#0f172a');
+      bGrad.addColorStop(1, '#020617');
+      ctx.fillStyle = bGrad;
+      ctx.fill();
+
+      // Glowing red warning ring
+      ctx.strokeStyle = `rgba(255, 23, 68, ${0.4 + Math.sin(performance.now() * 0.01) * 0.3})`;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // Fuse
+      ctx.beginPath();
+      ctx.moveTo(0, -f.radius);
+      ctx.quadraticCurveTo(10, -f.radius - 16, 16, -f.radius - 12);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // Burning Spark Particle
+      const sparkColor = `hsl(${30 + Math.random() * 30}, 100%, 65%)`;
+      ctx.beginPath();
+      ctx.arc(16, -f.radius - 12, 4 + Math.random() * 4, 0, Math.PI * 2);
+      ctx.fillStyle = sparkColor;
+      ctx.shadowColor = sparkColor;
+      ctx.shadowBlur = 12;
+      ctx.fill();
+
+      // Skull
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ef4444';
+      ctx.font = `${f.radius * 0.75}px 'Segoe UI Emoji', sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('💣', 0, 2);
+    } else {
+      // Fruit Skin
+      ctx.beginPath();
+      ctx.arc(0, 0, f.radius, 0, Math.PI * 2);
+      const grad = ctx.createRadialGradient(-f.radius * 0.35, -f.radius * 0.35, f.radius * 0.1, 0, 0, f.radius);
+      grad.addColorStop(0, lighten(f.type.skinColor, 40));
+      grad.addColorStop(0.85, f.type.skinColor);
+      grad.addColorStop(1, darken(f.type.skinColor, 30));
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Specular shine
+      ctx.beginPath();
+      ctx.ellipse(-f.radius * 0.35, -f.radius * 0.35, f.radius * 0.35, f.radius * 0.2, -Math.PI / 4, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+      ctx.fill();
+
+      // Watermelon stripes
+      if (f.type.name === 'watermelon') {
+        ctx.strokeStyle = 'rgba(10, 50, 15, 0.4)';
+        ctx.lineWidth = 4;
+        for (let s = 0; s < 6; s++) {
+          const ang = (s / 6) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.arc(0, 0, f.radius - 2, ang, ang + 0.35);
+          ctx.stroke();
+        }
+      }
+
+      // Apple leaf
+      if (f.type.leaf) {
+        ctx.beginPath();
+        ctx.ellipse(3, -f.radius + 2, 6, 12, -0.4, 0, Math.PI * 2);
+        ctx.fillStyle = '#4ade80';
+        ctx.fill();
+        ctx.strokeStyle = '#22c55e';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  // ─── Color Helpers ───
+  function lighten(hex, amt) {
+    const num = parseInt(hex.replace('#',''), 16);
+    let r = Math.min(255, ((num >> 16) & 255) + amt);
+    let g = Math.min(255, ((num >> 8) & 255) + amt);
+    let b = Math.min(255, (num & 255) + amt);
+    return `rgb(${r},${g},${b})`;
+  }
+  function darken(hex, amt) {
+    const num = parseInt(hex.replace('#',''), 16);
+    let r = Math.max(0, ((num >> 16) & 255) - amt);
+    let g = Math.max(0, ((num >> 8) & 255) - amt);
+    let b = Math.max(0, (num & 255) - amt);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  // ─── Line-Segment vs Circle Intersection ───
+  function lineSegmentIntersectsCircle(x1, y1, x2, y2, cx, cy, r) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return Math.hypot(x1 - cx, y1 - cy) <= r;
+    const t = Math.max(0, Math.min(1, ((cx - x1) * dx + (cy - y1) * dy) / lenSq));
+    const nearestX = x1 + t * dx;
+    const nearestY = y1 + t * dy;
+    return Math.hypot(nearestX - cx, nearestY - cy) <= r;
+  }
+
+  // ─── Slicing Fruit & Particle Effects ───
+  function sliceFruit(f, swipeDx, swipeDy) {
+    f.sliced = true;
+
+    if (f.isBomb) {
+      playBombSound();
+      spawnBombExplosion(f.x, f.y);
+      endGame();
+      return;
+    }
+
+    score += 1;
+    currentSwipeCombo++;
+    playSliceSound();
+    playSplatSound();
+
+    // Slice Angle
+    const sliceAngle = Math.atan2(swipeDy, swipeDx) || 0;
+    const perpAngle = sliceAngle + Math.PI / 2;
+
+    // Halves
+    for (let dir of [-1, 1]) {
+      const pushSpeed = 3.5 + Math.random() * 2.5;
+      particles.push({
+        type: 'half',
+        x: f.x, y: f.y,
+        vx: f.vx * 0.5 + Math.cos(perpAngle) * dir * pushSpeed,
+        vy: f.vy * 0.5 + Math.sin(perpAngle) * dir * pushSpeed - 2,
+        radius: f.radius,
+        skinColor: f.type.skinColor,
+        innerColor: f.type.innerColor,
+        rotation: f.rotation,
+        rotSpeed: dir * (0.06 + Math.random() * 0.06),
+        side: dir,
+        life: 1,
+        decay: 0.012
+      });
+    }
+
+    // Splatter Droplets
+    for (let i = 0; i < 24; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spd = 3 + Math.random() * 8;
+      const col = f.type.sliceColors[Math.floor(Math.random() * f.type.sliceColors.length)];
+      particles.push({
+        type: 'juice',
+        x: f.x, y: f.y,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd - 2,
+        radius: 3 + Math.random() * 4,
+        color: col,
+        life: 1,
+        decay: 0.018 + Math.random() * 0.02
+      });
+    }
+
+    // Juice Wall Stain
+    juiceStains.push({
+      x: f.x, y: f.y,
+      radius: f.radius * (0.8 + Math.random() * 0.6),
+      color: f.type.sliceColors[0],
+      alpha: 0.35,
+      decay: 0.0008
+    });
+
+    // Score Popup
+    floatingTexts.push({
+      x: f.x, y: f.y - 30,
+      text: '+1',
+      color: '#ffd700',
+      size: 26,
+      life: 1,
+      vy: -1.5
+    });
+
+    updateHUD();
+  }
+
+  // ─── Bomb Explosion Particles ───
+  function spawnBombExplosion(x, y) {
+    // White / Red Screen Flash
+    particles.push({ type: 'bombFlash', x, y, radius: 250, life: 1, decay: 0.04 });
+    // Shockwave Rings
+    particles.push({ type: 'shockwave', x, y, radius: 10, maxRadius: 350, life: 1, decay: 0.025 });
+
+    for (let i = 0; i < 45; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spd = 4 + Math.random() * 12;
+      particles.push({
+        type: 'spark',
+        x, y,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd,
+        color: ['#ff1744', '#ff9100', '#ffea00', '#ffffff'][Math.floor(Math.random() * 4)],
+        size: 3 + Math.random() * 5,
+        life: 1,
+        decay: 0.02 + Math.random() * 0.02
+      });
+    }
+  }
+
+  // ─── Update & Draw Particles ───
+  function updateAndDrawParticles(dt) {
+    // 1. Juice Stains on Background
+    for (let i = juiceStains.length - 1; i >= 0; i--) {
+      const s = juiceStains[i];
+      s.alpha -= s.decay;
+      if (s.alpha <= 0) { juiceStains.splice(i, 1); continue; }
+
+      ctx.save();
+      ctx.globalAlpha = s.alpha;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+      ctx.fillStyle = s.color;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 2. Active Dynamic Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.life -= p.decay;
+      if (p.life <= 0) { particles.splice(i, 1); continue; }
+
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, p.life);
+
+      if (p.type === 'juice') {
+        p.x += p.vx; p.y += p.vy;
+        p.vy += 0.22; // gravity
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius * p.life, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.fill();
+      } else if (p.type === 'half') {
+        p.x += p.vx; p.y += p.vy;
+        p.vy += 0.28;
+        p.rotation += p.rotSpeed;
+
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation);
+        ctx.beginPath();
+        ctx.arc(0, 0, p.radius, p.side > 0 ? 0 : Math.PI, p.side > 0 ? Math.PI : Math.PI * 2);
+        ctx.closePath();
+        ctx.fillStyle = p.innerColor;
+        ctx.fill();
+        ctx.strokeStyle = p.skinColor;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+      } else if (p.type === 'spark') {
+        p.x += p.vx; p.y += p.vy;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 8;
+        ctx.fill();
+      } else if (p.type === 'shockwave') {
+        p.radius += (p.maxRadius - p.radius) * 0.1;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, 100, 50, ${p.life * 0.8})`;
+        ctx.lineWidth = 6 * p.life;
+        ctx.stroke();
+      } else if (p.type === 'bombFlash') {
+        const rad = p.radius * (1 + (1 - p.life) * 0.5);
+        const fGrad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad);
+        fGrad.addColorStop(0, `rgba(255, 255, 255, ${p.life * 0.9})`);
+        fGrad.addColorStop(0.4, `rgba(255, 50, 50, ${p.life * 0.5})`);
+        fGrad.addColorStop(1, 'rgba(255, 0, 0, 0)');
+        ctx.fillStyle = fGrad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      ctx.restore();
+    }
+
+    // 3. Floating Combo / Score Texts
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+      const t = floatingTexts[i];
+      t.life -= 0.015;
+      t.y += t.vy;
+      if (t.life <= 0) { floatingTexts.splice(i, 1); continue; }
+
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, t.life);
+      ctx.font = `900 ${t.size}px 'Cinzel', serif`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = t.color;
+      ctx.shadowColor = t.color;
+      ctx.shadowBlur = 16;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#000';
+      ctx.strokeText(t.text, t.x, t.y);
+      ctx.fillText(t.text, t.x, t.y);
+      ctx.restore();
+    }
+  }
+
+  // ─── Blade Trail & Cursor ───
+  function updateBladeTrail() {
+    if (cursor.active) {
+      bladeTrail.push({ x: cursor.x, y: cursor.y, time: performance.now() });
+    }
+    const now = performance.now();
+    while (bladeTrail.length > 0 && now - bladeTrail[0].time > 150) {
+      bladeTrail.shift();
+    }
+  }
+
+  function drawBladeTrail() {
+    if (bladeTrail.length < 2) return;
+    const now = performance.now();
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    for (let i = 1; i < bladeTrail.length; i++) {
+      const p0 = bladeTrail[i - 1];
+      const p1 = bladeTrail[i];
+      const age = (now - p1.time) / 150;
+      const alpha = Math.max(0, 1 - age);
+      const width = (1 - age) * 8 + 1;
+
+      // Inner Hot Core (White)
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.lineWidth = width;
+      ctx.stroke();
+
+      // Outer Fiery / Cyber Glow
+      ctx.strokeStyle = `rgba(0, 229, 255, ${alpha * 0.6})`;
+      ctx.lineWidth = width + 8;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  function drawCursor() {
+    ctx.save();
+    ctx.translate(cursor.x, cursor.y);
+
+    if (cursor.active) {
+      // ⚔️ Slicing Mode: Glowing Energy Tip + Sparks
+      ctx.beginPath();
+      ctx.arc(0, 0, 8, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#00e5ff';
+      ctx.shadowBlur = 20;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(0, 0, 16, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(0, 229, 255, 0.6)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else {
+      // 🎯 Aiming / Reticle Mode: Futuristic Laser Dot & Compass Ring
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff4081';
+      ctx.shadowColor = '#ff4081';
+      ctx.shadowBlur = 12;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(0, 0, 18, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255, 64, 129, 0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  // ─── Background: Dojo Wood & Moody Ambient Glow ───
+  function drawBackground() {
+    // Dojo Gradient
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    bgGrad.addColorStop(0, '#0c0a14');
+    bgGrad.addColorStop(0.5, '#120e1e');
+    bgGrad.addColorStop(1, '#07060b');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Subtle Radial Lantern Glow
+    const lanternGrad = ctx.createRadialGradient(canvas.width / 2, canvas.height * 0.9, 50, canvas.width / 2, canvas.height * 0.9, canvas.width * 0.6);
+    lanternGrad.addColorStop(0, 'rgba(255, 80, 20, 0.08)');
+    lanternGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = lanternGrad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  // ─── Main Game Loop ───
+  let lastTime = 0;
+
+  function gameLoop(timestamp) {
+    if (!gameRunning) return;
+    const dt = Math.min(timestamp - lastTime, 40);
+    lastTime = timestamp;
+    elapsed += dt;
+
+    // Smooth Cursor Movement towards Gyro target
+    if (cursor.isGyro) {
+      const smoothing = 0.45;
+      cursor.x += (cursor.targetX - cursor.x) * smoothing;
+      cursor.y += (cursor.targetY - cursor.y) * smoothing;
+    }
+
+    // Spawn Fruits
+    spawnTimer += dt;
+    const currentInterval = Math.max(550, spawnInterval - elapsed * 0.007);
+    if (spawnTimer >= currentInterval) {
+      spawnTimer = 0;
+      spawnFruits();
+    }
+
+    // Update Fruits
+    const gravity = 0.28;
+    for (let i = fruits.length - 1; i >= 0; i--) {
+      const f = fruits[i];
+      f.x += f.vx;
+      f.y += f.vy;
+      f.vy += gravity;
+      f.rotation += f.rotSpeed;
+
+      if (f.y > canvas.height + 100) {
+        fruits.splice(i, 1);
+      }
+    }
+
+    // Slice Detection
+    if (cursor.active) {
+      const swipeDx = cursor.x - prevCursor.x;
+      const swipeDy = cursor.y - prevCursor.y;
+      const swipeDist = Math.hypot(swipeDx, swipeDy);
+
+      if (swipeDist > 4) {
+        for (let i = fruits.length - 1; i >= 0; i--) {
+          const f = fruits[i];
+          if (f.sliced) continue;
+
+          if (lineSegmentIntersectsCircle(prevCursor.x, prevCursor.y, cursor.x, cursor.y, f.x, f.y, f.radius)) {
+            sliceFruit(f, swipeDx, swipeDy);
+            fruits.splice(i, 1);
+            if (!gameRunning) return; // if bomb hit
+          }
+        }
+      }
+    } else {
+      // Evaluate Combo upon finishing swipe
+      if (currentSwipeCombo >= 3) {
+        const bonus = currentSwipeCombo * 2;
+        score += bonus;
+        playComboFanfare(currentSwipeCombo);
+        floatingTexts.push({
+          x: cursor.x, y: cursor.y - 45,
+          text: `🔥 ${currentSwipeCombo}x COMBO! +${bonus}`,
+          color: '#00e5ff',
+          size: 32,
+          life: 1.2,
+          vy: -1.8
+        });
+        updateHUD();
+      }
+      currentSwipeCombo = 0;
+    }
+
+    prevCursor.x = cursor.x;
+    prevCursor.y = cursor.y;
+
+    // Draw Pipeline
+    drawBackground();
+    updateAndDrawParticles(dt);
+    for (const f of fruits) drawFruit(f);
+    updateBladeTrail();
+    drawBladeTrail();
+    drawCursor();
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  // ─── Game Control ───
+  function updateHUD() {
+    document.getElementById('scoreDisplay').textContent = score;
+    document.getElementById('bestDisplay').textContent = bestScore;
+  }
+
+  function startGame() {
+    ensureAudio();
+    score = 0;
+    elapsed = 0;
+    spawnTimer = 0;
+    currentSwipeCombo = 0;
+    fruits = [];
+    particles = [];
+    bladeTrail = [];
+    floatingTexts = [];
+    gameOver = false;
+    gameRunning = true;
+
+    document.getElementById('startOverlay').classList.add('hidden');
+    document.getElementById('gameOverOverlay').classList.remove('visible');
+    updateHUD();
+
+    lastTime = performance.now();
+    requestAnimationFrame(gameLoop);
+  }
+
+  function endGame() {
+    gameRunning = false;
+    gameOver = true;
+
+    if (score > bestScore) {
+      bestScore = score;
+      localStorage.setItem('fruitNinja_best', bestScore);
+    }
+
+    document.getElementById('finalScore').textContent = score;
+    document.getElementById('finalBest').textContent = bestScore;
+    updateHUD();
+
+    // Fade out particles before showing game over modal
+    let fadeSteps = 0;
+    function renderExplosionFade() {
+      drawBackground();
+      updateAndDrawParticles(16);
+      fadeSteps++;
+      if (fadeSteps < 35) {
+        requestAnimationFrame(renderExplosionFade);
+      } else {
+        document.getElementById('gameOverOverlay').classList.add('visible');
+      }
+    }
+    requestAnimationFrame(renderExplosionFade);
+  }
+
+  // ─── PC Mouse Input (Play with Mouse or Touch) ───
+  canvas.addEventListener('mousedown', (e) => {
+    if (!gameRunning) return;
+    cursor.isGyro = false;
+    cursor.x = e.clientX; cursor.y = e.clientY;
+    cursor.targetX = cursor.x; cursor.targetY = cursor.y;
+    prevCursor.x = cursor.x; prevCursor.y = cursor.y;
+    cursor.active = true;
+  });
+
+  canvas.addEventListener('mousemove', (e) => {
+    if (!gameRunning) return;
+    if (!cursor.isGyro) {
+      cursor.x = e.clientX;
+      cursor.y = e.clientY;
+    }
+  });
+
+  canvas.addEventListener('mouseup', () => { if (!cursor.isGyro) cursor.active = false; });
+  canvas.addEventListener('mouseleave', () => { if (!cursor.isGyro) cursor.active = false; });
+
+  // ─── Socket.io: Phone Gyroscope Stream ───
+  const socket = io();
+
+  socket.on('connect', () => {
+    socket.emit('game:register');
+  });
+
+  socket.on('controller:connected', () => {
+    updateControllerStatus(true);
+    showToast('📱 Controller Connected!');
+  });
+
+  socket.on('controller:disconnected', () => {
+    updateControllerStatus(false);
+  });
+
+  socket.on('controller:count', (count) => {
+    updateControllerStatus(count > 0);
+  });
+
+  function updateControllerStatus(connected) {
+    const pill = document.getElementById('statusPill');
+    const label = document.getElementById('statusLabel');
+    if (connected) {
+      pill.classList.add('connected');
+      label.textContent = '🗡️ Gyro Sword Connected';
+    } else {
+      pill.classList.remove('connected');
+      label.textContent = 'Connect Phone';
+    }
+  }
+
+  // Remote Gyro Stream
+  socket.on('remote:gyro', (data) => {
+    cursor.isGyro = true;
+
+    // Map tilt angles to screen coordinates
+    // deltaRoll: left/right tilt [-40, 40] deg
+    // deltaPitch: up/down tilt [-40, 40] deg
+    const sens = data.sensitivity || 1.0;
+    const maxRollAngle = 30 / sens;
+    const maxPitchAngle = 30 / sens;
+
+    const normX = 0.5 + (data.deltaRoll / maxRollAngle) * 0.5;
+    const normY = 0.5 + (data.deltaPitch / maxPitchAngle) * 0.5;
+
+    cursor.targetX = Math.max(0, Math.min(canvas.width, normX * canvas.width));
+    cursor.targetY = Math.max(0, Math.min(canvas.height, normY * canvas.height));
+
+    if (data.isSlashing !== undefined) {
+      cursor.active = data.isSlashing;
+    }
+  });
+
+  // Slash trigger state from phone
+  socket.on('remote:slash_state', (data) => {
+    cursor.active = !!data.active;
+  });
+
+  // Re-center aim from phone
+  socket.on('remote:recenter', () => {
+    cursor.targetX = canvas.width / 2;
+    cursor.targetY = canvas.height / 2;
+    cursor.x = canvas.width / 2;
+    cursor.y = canvas.height / 2;
+    prevCursor.x = cursor.x;
+    prevCursor.y = cursor.y;
+    showToast('🎯 Aim Re-Centered');
+  });
+
+  // Remote Actions (Start / Restart from Phone)
+  socket.on('remote:action', (data) => {
+    if (data.type === 'start_game') {
+      startGame();
+    }
+  });
+
+  // ─── Fetch QR Code & Controller URL ───
+  async function loadQRCode() {
+    try {
+      const res = await fetch('/api/qrcode');
+      const data = await res.json();
+      if (data.dataUrl) {
+        document.getElementById('qrImg').src = data.dataUrl;
+        document.getElementById('startQrImg').src = data.dataUrl;
+      }
+      if (data.url) {
+        document.getElementById('qrUrl').textContent = data.url;
+        const startUrlEl = document.getElementById('startQrUrl');
+        if (startUrlEl) {
+          startUrlEl.innerHTML = `<a href="${data.url}" target="_blank" style="color:#38bdf8; text-decoration:none;">${data.url} ↗</a>`;
+        }
+      }
+    } catch (err) {
+      console.warn('QR Code load error:', err);
+      const fallbackUrl = `http://${window.location.hostname || 'localhost'}:3000/controller`;
+      document.getElementById('qrUrl').textContent = fallbackUrl;
+      const startUrlEl = document.getElementById('startQrUrl');
+      if (startUrlEl) {
+        startUrlEl.innerHTML = `<a href="${fallbackUrl}" target="_blank" style="color:#38bdf8; text-decoration:none;">${fallbackUrl} ↗</a>`;
+      }
+      const fallbackQr = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fallbackUrl)}`;
+      document.getElementById('qrImg').src = fallbackQr;
+      document.getElementById('startQrImg').src = fallbackQr;
+    }
+  }
+  loadQRCode();
+
+  // ─── Initial Setup ───
+  updateHUD();
+  drawBackground();
+  </script>
+</body>
+</html>
