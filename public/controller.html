@@ -431,7 +431,7 @@
     <!-- Settings & Sensitivity -->
     <div class="control-footer">
       <div class="footer-row">
-        <span class="setting-label">Controller Mode:</span>
+        <span class="setting-label">Mode:</span>
         <div class="segmented-control" id="modeControl">
           <button class="seg-btn active" data-mode="gyro">Gyroscope</button>
           <button class="seg-btn" data-mode="touch">Touchpad</button>
@@ -445,6 +445,13 @@
           <button class="seg-btn active" data-sens="1.2">Normal</button>
           <button class="seg-btn" data-sens="1.8">Fast</button>
           <button class="seg-btn" data-sens="2.6">Insane</button>
+        </div>
+      </div>
+      <div class="footer-row">
+        <span class="setting-label">Pitch Axis:</span>
+        <div class="segmented-control" id="invertControl">
+          <button class="seg-btn active" data-invert="0">Normal (Up = Up)</button>
+          <button class="seg-btn" data-invert="1">Inverted</button>
         </div>
       </div>
     </div>
@@ -630,18 +637,18 @@
     const rawGamma = e.gamma !== null ? e.gamma : 0;
     const rawAlpha = e.alpha !== null ? e.alpha : 0;
 
-    const smoothFactor = 0.35;
-    currentBeta += (rawBeta - currentBeta) * smoothFactor;
-    currentGamma += (rawGamma - currentGamma) * smoothFactor;
-    currentAlpha += (rawAlpha - currentAlpha) * smoothFactor;
+    // Smooth slightly for mobile horizon HUD visualizer
+    currentBeta += (rawBeta - currentBeta) * 0.4;
+    currentGamma += (rawGamma - currentGamma) * 0.4;
+    currentAlpha += (rawAlpha - currentAlpha) * 0.4;
 
-    const deltaPitch = currentBeta - centerBeta;
-    const deltaRoll = currentGamma - centerGamma;
+    const deltaPitch = rawBeta - centerBeta;
+    const deltaRoll = rawGamma - centerGamma;
 
     horizonLine.style.transform = `rotate(${-deltaRoll}deg)`;
     const clampedPitch = Math.max(-18, Math.min(18, deltaPitch));
     const clampedRoll = Math.max(-18, Math.min(18, deltaRoll));
-    crosshairDot.style.transform = `translate(${clampedRoll}px, ${clampedPitch}px)`;
+    crosshairDot.style.transform = `translate(${clampedRoll}px, ${-clampedPitch}px)`;
     gyroDebug.textContent = `P: ${Math.round(deltaPitch)}° | R: ${Math.round(deltaRoll)}°`;
 
     updateSlashState();
@@ -651,12 +658,14 @@
         type: 'gyro',
         deltaPitch,
         deltaRoll,
-        rawBeta: currentBeta,
-        rawGamma: currentGamma,
-        rawAlpha: currentAlpha,
+        rawBeta,
+        rawGamma,
+        rawAlpha,
         rotRate: lastRotRate,
         isSlashing,
-        sensitivity: sensitivityMultiplier
+        sensitivity: sensitivityMultiplier,
+        invertY: isInvertedY,
+        timestamp: performance.now()
       });
     }
   }
@@ -780,7 +789,9 @@
     sendControllerMsg({ type: 'touchend' });
   }, { passive: false });
 
-  // ─── Mode & Sensitivity Selectors ───
+  let isInvertedY = false;
+
+  // ─── Mode, Sensitivity & Pitch Selectors ───
   document.querySelectorAll('#modeControl [data-mode]').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#modeControl [data-mode]').forEach(b => b.classList.remove('active'));
@@ -806,6 +817,15 @@
       document.querySelectorAll('#sensControl [data-sens]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       sensitivityMultiplier = parseFloat(btn.getAttribute('data-sens'));
+      hapticPulse(15);
+    });
+  });
+
+  document.querySelectorAll('#invertControl [data-invert]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#invertControl [data-invert]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      isInvertedY = btn.getAttribute('data-invert') === '1';
       hapticPulse(15);
     });
   });

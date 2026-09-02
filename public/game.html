@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fruit Ninja — AirMouse Gyro Edition</title>
+  <title>Fruit Ninja — AirMouse Katana Edition</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Outfit:wght@400;600;800;900&display=swap" rel="stylesheet">
@@ -69,7 +69,7 @@
       font-size: 28px;
     }
 
-    /* ───────── Connection & Gyro Indicator ───────── */
+    /* ───────── Connection & Status Pill ───────── */
     #statusPill {
       position: fixed; top: 24px; left: 50%; transform: translateX(-50%);
       display: flex; align-items: center; gap: 10px;
@@ -104,7 +104,7 @@
       box-shadow: 0 0 10px #00e676;
     }
 
-    /* ───────── Calibration Toast ───────── */
+    /* ───────── Toast ───────── */
     #toast {
       position: fixed; top: 75px; left: 50%; transform: translateX(-50%) translateY(-20px);
       background: rgba(0, 229, 255, 0.2);
@@ -409,7 +409,7 @@
     </div>
   </div>
 
-  <!-- Connection & Gyro Status -->
+  <!-- Connection & Status Pill -->
   <div id="statusPill">
     <div id="statusDot"></div>
     <span id="statusLabel">Connect Phone</span>
@@ -430,7 +430,7 @@
   <!-- Start Overlay -->
   <div id="startOverlay">
     <h1 class="game-logo">🍉 FRUIT NINJA</h1>
-    <p class="game-sub">AIRMOUSE GYROSCOPE EDITION</p>
+    <p class="game-sub">AIRMOUSE KATANA SWORD PHYSICS</p>
     <button class="play-btn" id="mainPlayBtn" onclick="startGame()">ENTER DOJO</button>
     
     <div class="start-qr-card">
@@ -472,8 +472,7 @@
 
   <script>
   /* ══════════════════════════════════════════════════════════════
-     FRUIT NINJA — AIRMOUSE HYBRID GYRO ENGINE
-     Supports WebRTC (PeerJS for Vercel) + Socket.io (Local)
+     KATANA SWORD PHYSICS ENGINE (Anti-Jitter + Rigid Blade)
      ══════════════════════════════════════════════════════════════ */
 
   const canvas = document.getElementById('gameCanvas');
@@ -486,6 +485,68 @@
   window.addEventListener('resize', resize);
   resize();
 
+  // ─── 1-Euro Anti-Jitter Filter ───
+  class OneEuroFilter {
+    constructor(minCutoff = 1.0, beta = 0.08, dCutoff = 1.0) {
+      this.minCutoff = minCutoff;
+      this.beta = beta;
+      this.dCutoff = dCutoff;
+      this.xPrev = null;
+      this.dxPrev = 0;
+      this.tPrev = null;
+    }
+    filter(x, timestamp) {
+      if (this.xPrev === null) {
+        this.xPrev = x;
+        this.tPrev = timestamp;
+        return x;
+      }
+      const dt = Math.max(1e-3, (timestamp - this.tPrev) / 1000);
+      this.tPrev = timestamp;
+      const dx = (x - this.xPrev) / dt;
+      const edx = this.dxPrev + (dx - this.dxPrev) * (1 / (1 + (1 / (2 * Math.PI * this.dCutoff * dt))));
+      this.dxPrev = edx;
+      const cutoff = this.minCutoff + this.beta * Math.abs(edx);
+      const alpha = 1 / (1 + (1 / (2 * Math.PI * cutoff * dt)));
+      const filtered = this.xPrev + (x - this.xPrev) * alpha;
+      this.xPrev = filtered;
+      return filtered;
+    }
+  }
+
+  const filterX = new OneEuroFilter(0.8, 0.06);
+  const filterY = new OneEuroFilter(0.8, 0.06);
+
+  // ─── Katana Rigid Body Simulation ───
+  const katana = {
+    // Hilt / Grip Position
+    hx: canvas.width / 2,
+    hy: canvas.height * 0.7,
+    hvx: 0,
+    hvy: 0,
+
+    // Target from Gyro or Mouse
+    targetX: canvas.width / 2,
+    targetY: canvas.height * 0.7,
+
+    // Blade Length & Angle
+    length: 160,
+    angle: -Math.PI / 4,
+    angularVel: 0,
+    targetAngle: -Math.PI / 4,
+
+    // Tip Position
+    tx: canvas.width / 2 + 160 * Math.cos(-Math.PI / 4),
+    ty: canvas.height * 0.7 + 160 * Math.sin(-Math.PI / 4),
+    prevTx: canvas.width / 2 + 160 * Math.cos(-Math.PI / 4),
+    prevTy: canvas.height * 0.7 + 160 * Math.sin(-Math.PI / 4),
+
+    // Blade speed & active state
+    tipSpeed: 0,
+    isSlashing: false,
+    autoSlashSpeedThreshold: 14
+  };
+
   // ─── Sound System (Synthesised Web Audio) ───
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
   let audioCtx;
@@ -495,32 +556,56 @@
     if (audioCtx.state === 'suspended') audioCtx.resume();
   }
 
-  function playSliceSound() {
+  let lastSwooshTime = 0;
+  function playSwordSwoosh(intensity = 1.0) {
     ensureAudio();
+    const now = performance.now();
+    if (now - lastSwooshTime < 90) return; // Debounce
+    lastSwooshTime = now;
+
     const ac = audioCtx;
     const osc = ac.createOscillator();
     const gain = ac.createGain();
     osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(1100, ac.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(180, ac.currentTime + 0.14);
-    gain.gain.setValueAtTime(0.22, ac.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.16);
+
+    const freqStart = 800 + Math.min(1200, intensity * 25);
+    const freqEnd = 140 + Math.random() * 40;
+    osc.frequency.setValueAtTime(freqStart, ac.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(freqEnd, ac.currentTime + 0.13);
+
+    const volume = Math.min(0.28, 0.1 + intensity * 0.005);
+    gain.gain.setValueAtTime(volume, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.14);
+
     osc.connect(gain).connect(ac.destination);
-    osc.start(); osc.stop(ac.currentTime + 0.16);
+    osc.start();
+    osc.stop(ac.currentTime + 0.14);
   }
 
-  function playSplatSound() {
+  function playSliceHitSound() {
     ensureAudio();
     const ac = audioCtx;
+    // Crisp knife sound
     const osc = ac.createOscillator();
     const gain = ac.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(320, ac.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.3, ac.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.12);
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(1400, ac.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(220, ac.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.25, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.13);
     osc.connect(gain).connect(ac.destination);
-    osc.start(); osc.stop(ac.currentTime + 0.12);
+    osc.start(); osc.stop(ac.currentTime + 0.13);
+
+    // Juice splat
+    const splat = ac.createOscillator();
+    const sGain = ac.createGain();
+    splat.type = 'sine';
+    splat.frequency.setValueAtTime(320, ac.currentTime);
+    splat.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.1);
+    sGain.gain.setValueAtTime(0.3, ac.currentTime);
+    sGain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.11);
+    splat.connect(sGain).connect(ac.destination);
+    splat.start(); splat.stop(ac.currentTime + 0.11);
   }
 
   function playBombSound() {
@@ -537,6 +622,7 @@
     gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.5);
     src.connect(gain).connect(ac.destination);
     src.start();
+
     const osc = ac.createOscillator();
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(150, ac.currentTime);
@@ -573,21 +659,9 @@
   let fruits = [];
   let particles = [];
   let juiceStains = [];
-  let bladeTrail = [];
+  let swordRibbonTrail = [];
   let floatingTexts = [];
 
-  // Gyro / Cursor System
-  let cursor = {
-    x: canvas.width / 2,
-    y: canvas.height / 2,
-    targetX: canvas.width / 2,
-    targetY: canvas.height / 2,
-    active: false,
-    isGyro: false
-  };
-  let prevCursor = { x: cursor.x, y: cursor.y };
-
-  // Swipe combo state
   let currentSwipeCombo = 0;
   let spawnTimer = 0;
   let spawnInterval = 1100;
@@ -788,14 +862,13 @@
 
     score += 1;
     currentSwipeCombo++;
-    playSliceSound();
-    playSplatSound();
+    playSliceHitSound();
 
-    const sliceAngle = Math.atan2(swipeDy, swipeDx) || 0;
+    const sliceAngle = Math.atan2(swipeDy, swipeDx) || katana.angle;
     const perpAngle = sliceAngle + Math.PI / 2;
 
     for (let dir of [-1, 1]) {
-      const pushSpeed = 3.5 + Math.random() * 2.5;
+      const pushSpeed = 4.0 + Math.random() * 3.0;
       particles.push({
         type: 'half',
         x: f.x, y: f.y,
@@ -805,16 +878,16 @@
         skinColor: f.type.skinColor,
         innerColor: f.type.innerColor,
         rotation: f.rotation,
-        rotSpeed: dir * (0.06 + Math.random() * 0.06),
+        rotSpeed: dir * (0.08 + Math.random() * 0.08),
         side: dir,
         life: 1,
         decay: 0.012
       });
     }
 
-    for (let i = 0; i < 22; i++) {
+    for (let i = 0; i < 24; i++) {
       const ang = Math.random() * Math.PI * 2;
-      const spd = 3 + Math.random() * 7;
+      const spd = 4 + Math.random() * 8;
       const col = f.type.sliceColors[Math.floor(Math.random() * f.type.sliceColors.length)];
       particles.push({
         type: 'juice',
@@ -825,6 +898,22 @@
         color: col,
         life: 1,
         decay: 0.018 + Math.random() * 0.02
+      });
+    }
+
+    // Dynamic Katana Spark Blast on Cut
+    for (let i = 0; i < 16; i++) {
+      const sAng = sliceAngle + (Math.random() - 0.5) * 1.5;
+      const spd = 6 + Math.random() * 10;
+      particles.push({
+        type: 'spark',
+        x: f.x, y: f.y,
+        vx: Math.cos(sAng) * spd,
+        vy: Math.sin(sAng) * spd,
+        color: '#00e5ff',
+        size: 3 + Math.random() * 4,
+        life: 1,
+        decay: 0.03
       });
     }
 
@@ -852,9 +941,9 @@
     particles.push({ type: 'bombFlash', x, y, radius: 250, life: 1, decay: 0.04 });
     particles.push({ type: 'shockwave', x, y, radius: 10, maxRadius: 350, life: 1, decay: 0.025 });
 
-    for (let i = 0; i < 45; i++) {
+    for (let i = 0; i < 50; i++) {
       const ang = Math.random() * Math.PI * 2;
-      const spd = 4 + Math.random() * 12;
+      const spd = 4 + Math.random() * 14;
       particles.push({
         type: 'spark',
         x, y,
@@ -962,78 +1051,214 @@
     }
   }
 
-  function updateBladeTrail() {
-    if (cursor.active) {
-      bladeTrail.push({ x: cursor.x, y: cursor.y, time: performance.now() });
+  // ─── Katana Physics Simulation Step ───
+  function updateKatanaPhysics(dt, now) {
+    // 1. Spring-Damper Hilt Follower
+    const springK = 0.28;
+    const damperD = 0.72;
+
+    const fx = (katana.targetX - katana.hx) * springK;
+    const fy = (katana.targetY - katana.hy) * springK;
+
+    katana.hvx = (katana.hvx + fx) * damperD;
+    katana.hvy = (katana.hvy + fy) * damperD;
+
+    katana.hx += katana.hvx;
+    katana.hy += katana.hvy;
+
+    // 2. Dynamic Katana Orientation & Swing Inertia
+    const hiltSpeed = Math.hypot(katana.hvx, katana.hvy);
+    if (hiltSpeed > 2.5) {
+      // Blade aligns along movement vector with slight lag
+      const moveAngle = Math.atan2(katana.hvy, katana.hvx);
+      katana.targetAngle = moveAngle;
     }
-    const now = performance.now();
-    while (bladeTrail.length > 0 && now - bladeTrail[0].time > 150) {
-      bladeTrail.shift();
+
+    // Angular Spring-Damper towards targetAngle
+    let angleDiff = katana.targetAngle - katana.angle;
+    // Normalize angle difference to [-PI, PI]
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+
+    const rotSpringK = 0.22;
+    const rotDamperD = 0.65;
+    katana.angularVel = (katana.angularVel + angleDiff * rotSpringK) * rotDamperD;
+    katana.angle += katana.angularVel;
+
+    // 3. Compute Blade Tip Position
+    katana.prevTx = katana.tx;
+    katana.prevTy = katana.ty;
+
+    katana.tx = katana.hx + Math.cos(katana.angle) * katana.length;
+    katana.ty = katana.hy + Math.sin(katana.angle) * katana.length;
+
+    katana.tipSpeed = Math.hypot(katana.tx - katana.prevTx, katana.ty - katana.prevTy);
+
+    // 4. Auto-Slash Trigger on High Swing Velocity
+    const isHighSpeedSwing = katana.tipSpeed >= katana.autoSlashSpeedThreshold || Math.abs(katana.angularVel) > 0.15;
+    if (isHighSpeedSwing) {
+      katana.isSlashing = true;
+      playSwordSwoosh(katana.tipSpeed);
+
+      // Add Embers peeling off tip
+      if (Math.random() < 0.6) {
+        particles.push({
+          type: 'spark',
+          x: katana.tx,
+          y: katana.ty,
+          vx: -Math.cos(katana.angle) * (2 + Math.random() * 4) + (Math.random() - 0.5) * 2,
+          vy: -Math.sin(katana.angle) * (2 + Math.random() * 4) + (Math.random() - 0.5) * 2,
+          color: '#00e5ff',
+          size: 2 + Math.random() * 3,
+          life: 1,
+          decay: 0.04
+        });
+      }
+    }
+
+    // 5. Sword Ribbon Mesh (Full Blade Sweep)
+    if (katana.isSlashing || hiltSpeed > 3) {
+      swordRibbonTrail.push({
+        hx: katana.hx,
+        hy: katana.hy,
+        tx: katana.tx,
+        ty: katana.ty,
+        time: now,
+        isPower: katana.isSlashing
+      });
+    }
+
+    // Fade old trail points
+    while (swordRibbonTrail.length > 0 && now - swordRibbonTrail[0].time > 180) {
+      swordRibbonTrail.shift();
     }
   }
 
-  function drawBladeTrail() {
-    if (bladeTrail.length < 2) return;
-    const now = performance.now();
+  // ─── Katana Blade & Ribbon Trail Rendering ───
+  function drawSwordRibbonTrail(now) {
+    if (swordRibbonTrail.length < 2) return;
 
     ctx.save();
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    for (let i = 1; i < bladeTrail.length; i++) {
-      const p0 = bladeTrail[i - 1];
-      const p1 = bladeTrail[i];
-      const age = (now - p1.time) / 150;
+    for (let i = 1; i < swordRibbonTrail.length; i++) {
+      const p0 = swordRibbonTrail[i - 1];
+      const p1 = swordRibbonTrail[i];
+      const age = (now - p1.time) / 180;
       const alpha = Math.max(0, 1 - age);
-      const width = (1 - age) * 8 + 1;
 
+      // Render ribbon quad between blade edge segments
       ctx.beginPath();
-      ctx.moveTo(p0.x, p0.y);
-      ctx.lineTo(p1.x, p1.y);
-      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-      ctx.lineWidth = width;
-      ctx.stroke();
+      ctx.moveTo(p0.hx, p0.hy);
+      ctx.lineTo(p0.tx, p0.ty);
+      ctx.lineTo(p1.tx, p1.ty);
+      ctx.lineTo(p1.hx, p1.hy);
+      ctx.closePath();
 
-      ctx.strokeStyle = `rgba(0, 229, 255, ${alpha * 0.6})`;
-      ctx.lineWidth = width + 8;
-      ctx.stroke();
+      const trailGrad = ctx.createLinearGradient(p1.hx, p1.hy, p1.tx, p1.ty);
+      if (p1.isPower) {
+        trailGrad.addColorStop(0, `rgba(0, 229, 255, ${alpha * 0.15})`);
+        trailGrad.addColorStop(0.7, `rgba(0, 229, 255, ${alpha * 0.45})`);
+        trailGrad.addColorStop(1, `rgba(255, 255, 255, ${alpha * 0.75})`);
+      } else {
+        trailGrad.addColorStop(0, `rgba(148, 163, 184, ${alpha * 0.08})`);
+        trailGrad.addColorStop(1, `rgba(255, 255, 255, ${alpha * 0.3})`);
+      }
+
+      ctx.fillStyle = trailGrad;
+      ctx.fill();
     }
-
     ctx.restore();
   }
 
-  function drawCursor() {
+  function drawKatana() {
     ctx.save();
-    ctx.translate(cursor.x, cursor.y);
+    ctx.translate(katana.hx, katana.hy);
+    ctx.rotate(katana.angle);
 
-    if (cursor.active) {
+    const L = katana.length;
+
+    // ── 1. Energy Blade Glow when Slashing ──
+    if (katana.isSlashing) {
       ctx.beginPath();
-      ctx.arc(0, 0, 8, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
+      ctx.moveTo(-10, 0);
+      ctx.quadraticCurveTo(L * 0.5, -12, L + 12, -4);
+      ctx.quadraticCurveTo(L * 0.5, 12, -10, 0);
+      ctx.fillStyle = 'rgba(0, 229, 255, 0.35)';
       ctx.shadowColor = '#00e5ff';
-      ctx.shadowBlur = 20;
+      ctx.shadowBlur = 24;
       ctx.fill();
+    }
 
-      ctx.beginPath();
-      ctx.arc(0, 0, 16, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(0, 229, 255, 0.6)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    } else {
-      ctx.beginPath();
-      ctx.arc(0, 0, 5, 0, Math.PI * 2);
-      ctx.fillStyle = '#ff4081';
-      ctx.shadowColor = '#ff4081';
-      ctx.shadowBlur = 12;
-      ctx.fill();
+    // ── 2. Curved Japanese Steel Blade (Nagasa) ──
+    ctx.beginPath();
+    ctx.moveTo(0, -3);
+    // Upper spine of katana (Mune) with authentic curve
+    ctx.quadraticCurveTo(L * 0.5, -7, L, -1);
+    // Kissaki (Tip)
+    ctx.lineTo(L + 10, 0);
+    // Cutting edge (Ha)
+    ctx.quadraticCurveTo(L * 0.5, 5, 0, 3);
+    ctx.closePath();
 
+    const bladeGrad = ctx.createLinearGradient(0, -6, 0, 6);
+    bladeGrad.addColorStop(0, '#f1f5f9');
+    bladeGrad.addColorStop(0.35, '#cbd5e1');
+    bladeGrad.addColorStop(0.55, '#94a3b8');
+    bladeGrad.addColorStop(0.85, '#e2e8f0');
+    bladeGrad.addColorStop(1, '#ffffff');
+
+    ctx.fillStyle = bladeGrad;
+    ctx.fill();
+
+    // ── 3. Hamon (Wavy differential temper line) ──
+    ctx.beginPath();
+    ctx.moveTo(4, 1);
+    for (let x = 10; x < L; x += 14) {
+      ctx.quadraticCurveTo(x + 5, -2, x + 10, 1.5);
+    }
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // ── 4. Habaki (Gold Blade Collar) ──
+    ctx.beginPath();
+    ctx.rect(0, -4.5, 10, 9);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fill();
+    ctx.strokeStyle = '#d97706';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // ── 5. Tsuba (Katana Guard) ──
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 5, 16, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#1e293b';
+    ctx.fill();
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // ── 6. Tsuka (Samurai Wrapped Hilt) ──
+    ctx.beginPath();
+    ctx.rect(-45, -4, 45, 8);
+    ctx.fillStyle = '#0f172a';
+    ctx.fill();
+
+    // Diamond wrap pattern (Ito)
+    for (let x = -40; x <= -10; x += 8) {
       ctx.beginPath();
-      ctx.arc(0, 0, 18, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255, 64, 129, 0.4)';
+      ctx.moveTo(x, -4);
+      ctx.lineTo(x + 4, 0);
+      ctx.lineTo(x, 4);
+      ctx.strokeStyle = '#fbbf24';
       ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 4]);
       ctx.stroke();
     }
+
+    // Kashira (Pommel Cap)
+    ctx.beginPath();
+    ctx.arc(-45, 0, 4.5, Math.PI / 2, Math.PI * 1.5);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fill();
 
     ctx.restore();
   }
@@ -1060,13 +1285,10 @@
     const dt = Math.min(timestamp - lastTime, 40);
     lastTime = timestamp;
 
-    // Smooth Cursor Movement
-    if (cursor.isGyro) {
-      const smoothing = 0.5;
-      cursor.x += (cursor.targetX - cursor.x) * smoothing;
-      cursor.y += (cursor.targetY - cursor.y) * smoothing;
-    }
+    // 1. Advance Katana Physics
+    updateKatanaPhysics(dt, timestamp);
 
+    // 2. Gameplay Loop (Fruits & Slice Detection)
     if (gameRunning) {
       elapsed += dt;
 
@@ -1078,7 +1300,7 @@
         spawnFruits();
       }
 
-      // Update Fruits
+      // Update Fruits Physics
       const gravity = 0.28;
       for (let i = fruits.length - 1; i >= 0; i--) {
         const f = fruits[i];
@@ -1092,22 +1314,23 @@
         }
       }
 
-      // Slice Detection
-      if (cursor.active) {
-        const swipeDx = cursor.x - prevCursor.x;
-        const swipeDy = cursor.y - prevCursor.y;
-        const swipeDist = Math.hypot(swipeDx, swipeDy);
+      // Slicing Detection (Sword Edge Sweep & Tip Arc)
+      if (katana.isSlashing) {
+        for (let i = fruits.length - 1; i >= 0; i--) {
+          const f = fruits[i];
+          if (f.sliced) continue;
 
-        if (swipeDist > 3) {
-          for (let i = fruits.length - 1; i >= 0; i--) {
-            const f = fruits[i];
-            if (f.sliced) continue;
+          // Check intersection along full blade length (hilt -> tip)
+          const hitBlade = lineSegmentIntersectsCircle(katana.hx, katana.hy, katana.tx, katana.ty, f.x, f.y, f.radius);
+          // Check intersection along sweeping tip arc (prevTip -> tip)
+          const hitTipSweep = lineSegmentIntersectsCircle(katana.prevTx, katana.prevTy, katana.tx, katana.ty, f.x, f.y, f.radius);
 
-            if (lineSegmentIntersectsCircle(prevCursor.x, prevCursor.y, cursor.x, cursor.y, f.x, f.y, f.radius)) {
-              sliceFruit(f, swipeDx, swipeDy);
-              fruits.splice(i, 1);
-              if (!gameRunning) break;
-            }
+          if (hitBlade || hitTipSweep) {
+            const swipeDx = katana.tx - katana.prevTx;
+            const swipeDy = katana.ty - katana.prevTy;
+            sliceFruit(f, swipeDx, swipeDy);
+            fruits.splice(i, 1);
+            if (!gameRunning) break;
           }
         }
       } else {
@@ -1116,7 +1339,7 @@
           score += bonus;
           playComboFanfare(currentSwipeCombo);
           floatingTexts.push({
-            x: cursor.x, y: cursor.y - 45,
+            x: katana.tx, y: katana.ty - 45,
             text: `🔥 ${currentSwipeCombo}x COMBO! +${bonus}`,
             color: '#00e5ff',
             size: 32,
@@ -1129,18 +1352,14 @@
       }
     }
 
-    prevCursor.x = cursor.x;
-    prevCursor.y = cursor.y;
-
-    // Draw Pipeline
+    // 3. Render Scene
     drawBackground();
     updateAndDrawParticles(dt);
     if (gameRunning) {
       for (const f of fruits) drawFruit(f);
     }
-    updateBladeTrail();
-    drawBladeTrail();
-    drawCursor();
+    drawSwordRibbonTrail(timestamp);
+    drawKatana();
 
     requestAnimationFrame(continuousLoop);
   }
@@ -1160,7 +1379,7 @@
     currentSwipeCombo = 0;
     fruits = [];
     particles = [];
-    bladeTrail = [];
+    swordRibbonTrail = [];
     floatingTexts = [];
     gameOver = false;
     gameRunning = true;
@@ -1188,72 +1407,73 @@
     }, 600);
   }
 
-  // ─── PC Mouse Input ───
+  // ─── PC Mouse Input (Katana Wielder) ───
   canvas.addEventListener('mousedown', (e) => {
-    cursor.isGyro = false;
-    cursor.x = e.clientX; cursor.y = e.clientY;
-    cursor.targetX = cursor.x; cursor.targetY = cursor.y;
-    prevCursor.x = cursor.x; prevCursor.y = cursor.y;
-    cursor.active = true;
+    katana.targetX = e.clientX;
+    katana.targetY = e.clientY;
+    katana.isSlashing = true;
   });
 
   canvas.addEventListener('mousemove', (e) => {
-    if (!cursor.isGyro) {
-      cursor.x = e.clientX;
-      cursor.y = e.clientY;
-    }
+    katana.targetX = e.clientX;
+    katana.targetY = e.clientY;
   });
 
-  canvas.addEventListener('mouseup', () => { if (!cursor.isGyro) cursor.active = false; });
-  canvas.addEventListener('mouseleave', () => { if (!cursor.isGyro) cursor.active = false; });
+  canvas.addEventListener('mouseup', () => {
+    katana.isSlashing = false;
+  });
 
   function updateControllerStatus(connected) {
     const pill = document.getElementById('statusPill');
     const label = document.getElementById('statusLabel');
     if (connected) {
       pill.classList.add('connected');
-      label.textContent = '🗡️ Katana Controller Connected';
+      label.textContent = '🗡️ Katana Connected';
     } else {
       pill.classList.remove('connected');
       label.textContent = 'Connect Phone';
     }
   }
 
-  // ─── Motion Data Processor ───
+  // ─── Motion Data Processor with 1€ Anti-Jitter Filter ───
   function handleIncomingGyro(data) {
-    cursor.isGyro = true;
+    const now = performance.now();
     const sens = data.sensitivity || 1.2;
+
     const maxRollAngle = 26 / sens;
     const maxPitchAngle = 26 / sens;
 
-    const normX = 0.5 + (data.deltaRoll / maxRollAngle) * 0.5;
-    const normY = 0.5 + (data.deltaPitch / maxPitchAngle) * 0.5;
+    // Natural Mapping:
+    // deltaRoll > 0 (tilt right) -> moves Right
+    // deltaPitch > 0 (tilt up) -> moves UP (Y=0 is top)
+    const invertY = data.invertY ? -1 : 1;
+    const rawNormX = 0.5 + (data.deltaRoll / maxRollAngle) * 0.5;
+    const rawNormY = 0.5 - invertY * (data.deltaPitch / maxPitchAngle) * 0.5;
 
-    cursor.targetX = Math.max(0, Math.min(canvas.width, normX * canvas.width));
-    cursor.targetY = Math.max(0, Math.min(canvas.height, normY * canvas.height));
+    const rawTargetX = Math.max(0, Math.min(canvas.width, rawNormX * canvas.width));
+    const rawTargetY = Math.max(0, Math.min(canvas.height, rawNormY * canvas.height));
+
+    // 1-Euro Adaptive Filter: Eliminates hand tremor jitter while keeping swings instant
+    katana.targetX = filterX.filter(rawTargetX, now);
+    katana.targetY = filterY.filter(rawTargetY, now);
 
     if (data.isSlashing !== undefined) {
-      cursor.active = data.isSlashing;
+      katana.isSlashing = data.isSlashing;
     }
   }
 
   function handleIncomingTouch(data) {
-    cursor.isGyro = false;
-    const sens = 2.4;
-    cursor.x += data.dx * sens;
-    cursor.y += data.dy * sens;
-    cursor.x = Math.max(0, Math.min(canvas.width, cursor.x));
-    cursor.y = Math.max(0, Math.min(canvas.height, cursor.y));
-    cursor.active = true;
+    const sens = 2.5;
+    katana.targetX = Math.max(0, Math.min(canvas.width, katana.targetX + data.dx * sens));
+    katana.targetY = Math.max(0, Math.min(canvas.height, katana.targetY + data.dy * sens));
+    katana.isSlashing = true;
   }
 
   // ─── Room ID & Dynamic Deployed URL Detection ───
   const currentOrigin = window.location.origin;
-  // Unique Room ID for P2P connection
   const roomId = 'fn-' + Math.random().toString(36).substring(2, 8);
   const controllerUrl = `${currentOrigin}/controller?room=${roomId}`;
 
-  // Update UI with the exact deployed link
   function displayControllerLink(url) {
     document.getElementById('qrUrl').textContent = url;
     const startUrlEl = document.getElementById('startQrUrl');
@@ -1261,7 +1481,6 @@
       startUrlEl.innerHTML = `<a href="${url}" target="_blank">${url} ↗</a>`;
     }
 
-    // Render High-Resolution QR code client-side
     if (typeof QRCode !== 'undefined' && QRCode.toDataURL) {
       QRCode.toDataURL(url, {
         width: 320,
@@ -1281,7 +1500,7 @@
   }
   displayControllerLink(controllerUrl);
 
-  // ─── WebRTC P2P (PeerJS) — Works on Vercel & Any Cloud Host ───
+  // ─── WebRTC P2P (PeerJS) ───
   try {
     const peer = new Peer(roomId);
     peer.on('open', (id) => {
@@ -1291,7 +1510,7 @@
     peer.on('connection', (conn) => {
       console.log('[P2P PeerJS] Phone connected directly!');
       updateControllerStatus(true);
-      showToast('📱 Phone Connected (P2P)!');
+      showToast('📱 Katana Sword Paired (P2P)!');
 
       conn.on('data', (msg) => {
         if (msg.type === 'gyro') {
@@ -1299,20 +1518,16 @@
         } else if (msg.type === 'touchmove') {
           handleIncomingTouch(msg);
         } else if (msg.type === 'touchstart') {
-          prevCursor.x = cursor.x;
-          prevCursor.y = cursor.y;
-          cursor.active = true;
+          katana.isSlashing = true;
         } else if (msg.type === 'touchend') {
-          cursor.active = false;
+          katana.isSlashing = false;
         } else if (msg.type === 'slash_state') {
-          cursor.active = !!msg.active;
+          katana.isSlashing = !!msg.active;
         } else if (msg.type === 'recenter') {
-          cursor.targetX = canvas.width / 2;
-          cursor.targetY = canvas.height / 2;
-          cursor.x = canvas.width / 2;
-          cursor.y = canvas.height / 2;
-          prevCursor.x = cursor.x;
-          prevCursor.y = cursor.y;
+          katana.targetX = canvas.width / 2;
+          katana.targetY = canvas.height * 0.7;
+          katana.hx = canvas.width / 2;
+          katana.hy = canvas.height * 0.7;
           showToast('🎯 Aim Re-Centered');
         } else if (msg.type === 'action' && msg.action === 'start_game') {
           startGame();
@@ -1327,33 +1542,31 @@
     console.warn('[PeerJS] Init error:', err);
   }
 
-  // ─── Socket.io Fallback (for local Node server) ───
+  // ─── Socket.io Fallback ───
   if (typeof io !== 'undefined') {
     try {
       const socket = io();
       socket.on('connect', () => { socket.emit('game:register'); });
       socket.on('controller:connected', () => {
         updateControllerStatus(true);
-        showToast('📱 Phone Connected!');
+        showToast('📱 Katana Sword Paired!');
       });
       socket.on('controller:disconnected', () => { updateControllerStatus(false); });
       socket.on('controller:count', (count) => { updateControllerStatus(count > 0); });
       socket.on('remote:gyro', handleIncomingGyro);
       socket.on('remote:touchmove', handleIncomingTouch);
-      socket.on('remote:touchstart', () => { cursor.active = true; });
-      socket.on('remote:touchend', () => { cursor.active = false; });
-      socket.on('remote:slash_state', (d) => { cursor.active = !!d.active; });
+      socket.on('remote:touchstart', () => { katana.isSlashing = true; });
+      socket.on('remote:touchend', () => { katana.isSlashing = false; });
+      socket.on('remote:slash_state', (d) => { katana.isSlashing = !!d.active; });
       socket.on('remote:recenter', () => {
-        cursor.targetX = canvas.width / 2;
-        cursor.targetY = canvas.height / 2;
-        cursor.x = canvas.width / 2;
-        cursor.y = canvas.height / 2;
+        katana.targetX = canvas.width / 2;
+        katana.targetY = canvas.height * 0.7;
+        katana.hx = canvas.width / 2;
+        katana.hy = canvas.height * 0.7;
         showToast('🎯 Aim Re-Centered');
       });
       socket.on('remote:action', (d) => { if (d.type === 'start_game') startGame(); });
-    } catch (e) {
-      console.log('Socket.io skipped in serverless environment');
-    }
+    } catch (e) {}
   }
 
   // Initial Setup
