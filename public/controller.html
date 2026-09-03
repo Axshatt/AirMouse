@@ -609,16 +609,24 @@
     }
   }
 
+  let rawBeta = 45;
+  let rawGamma = 0;
+  let rawAlpha = 0;
+  let transmitLoopStarted = false;
+
   function attachSensorListeners() {
     sensorsActive = true;
 
+    // Listen only to deviceorientation (avoid conflicting duplicate events)
     window.addEventListener('deviceorientation', handleOrientation, true);
-    if ('ondeviceorientationabsolute' in window) {
-      window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-    }
     window.addEventListener('devicemotion', handleMotion, true);
 
-    setTimeout(recenterAim, 250);
+    setTimeout(recenterAim, 200);
+
+    if (!transmitLoopStarted) {
+      transmitLoopStarted = true;
+      requestAnimationFrame(runTransmitLoop);
+    }
 
     setTimeout(() => {
       if (sensorEventCount === 0) {
@@ -628,47 +636,52 @@
     }, 2500);
   }
 
-  // ─── Orientation Handler ───
+  // ─── Orientation Event Listener ───
   function handleOrientation(e) {
     if (e.beta === null && e.gamma === null) return;
     sensorEventCount++;
+    rawBeta = e.beta !== null ? e.beta : 45;
+    rawGamma = e.gamma !== null ? e.gamma : 0;
+    rawAlpha = e.alpha !== null ? e.alpha : 0;
+  }
 
-    const rawBeta = e.beta !== null ? e.beta : 45;
-    const rawGamma = e.gamma !== null ? e.gamma : 0;
-    const rawAlpha = e.alpha !== null ? e.alpha : 0;
+  // ─── Continuous 60fps Low-Pass Filtered Transmitter Loop ───
+  function runTransmitLoop() {
+    if (sensorsActive) {
+      // Smooth exponential filter on orientation (eliminates IMU jitter)
+      const smoothWeight = 0.35;
+      currentBeta += (rawBeta - currentBeta) * smoothWeight;
+      currentGamma += (rawGamma - currentGamma) * smoothWeight;
+      currentAlpha += (rawAlpha - currentAlpha) * smoothWeight;
 
-    // Smooth filter to eliminate hardware IMU micro-noise
-    const filterWeight = 0.45;
-    currentBeta += (rawBeta - currentBeta) * filterWeight;
-    currentGamma += (rawGamma - currentGamma) * filterWeight;
-    currentAlpha += (rawAlpha - currentAlpha) * filterWeight;
+      const deltaPitch = currentBeta - centerBeta;
+      const deltaRoll = currentGamma - centerGamma;
 
-    const deltaPitch = currentBeta - centerBeta;
-    const deltaRoll = currentGamma - centerGamma;
+      // Update mobile HUD visualizer
+      horizonLine.style.transform = `rotate(${-deltaRoll}deg)`;
+      const clampedPitch = Math.max(-18, Math.min(18, deltaPitch));
+      const clampedRoll = Math.max(-18, Math.min(18, deltaRoll));
+      crosshairDot.style.transform = `translate(${clampedRoll}px, ${-clampedPitch}px)`;
+      gyroDebug.textContent = `P: ${Math.round(deltaPitch)}° | R: ${Math.round(deltaRoll)}°`;
 
-    horizonLine.style.transform = `rotate(${-deltaRoll}deg)`;
-    const clampedPitch = Math.max(-18, Math.min(18, deltaPitch));
-    const clampedRoll = Math.max(-18, Math.min(18, deltaRoll));
-    crosshairDot.style.transform = `translate(${clampedRoll}px, ${-clampedPitch}px)`;
-    gyroDebug.textContent = `P: ${Math.round(deltaPitch)}° | R: ${Math.round(deltaRoll)}°`;
+      updateSlashState();
 
-    updateSlashState();
-
-    if (currentMode !== 'touch') {
-      sendControllerMsg({
-        type: 'gyro',
-        deltaPitch,
-        deltaRoll,
-        rawBeta: currentBeta,
-        rawGamma: currentGamma,
-        rawAlpha: currentAlpha,
-        rotRate: lastRotRate,
-        isSlashing,
-        sensitivity: sensitivityMultiplier,
-        invertY: isInvertedY,
-        timestamp: performance.now()
-      });
+      if (currentMode !== 'touch') {
+        sendControllerMsg({
+          type: 'gyro',
+          deltaPitch,
+          deltaRoll,
+          rawBeta: currentBeta,
+          rawGamma: currentGamma,
+          rotRate: lastRotRate,
+          isSlashing,
+          sensitivity: sensitivityMultiplier,
+          invertY: isInvertedY,
+          timestamp: performance.now()
+        });
+      }
     }
+    requestAnimationFrame(runTransmitLoop);
   }
 
   // ─── Motion Handler (Swing Detection) ───

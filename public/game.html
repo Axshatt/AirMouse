@@ -1269,18 +1269,24 @@
     const now = performance.now();
     const sens = data.sensitivity || 1.2;
 
-    const maxRollAngle = 26 / sens;
-    const maxPitchAngle = 26 / sens;
+    const maxRollAngle = 36 / sens;
+    const maxPitchAngle = 30 / sens;
 
     // Natural Mapping:
     // deltaRoll > 0 (tilt right) -> moves Right
     // deltaPitch > 0 (tilt up) -> moves UP (Y=0 is top)
     const invertY = data.invertY ? -1 : 1;
-    const rawNormX = 0.5 + (data.deltaRoll / maxRollAngle) * 0.5;
-    const rawNormY = 0.5 - invertY * (data.deltaPitch / maxPitchAngle) * 0.5;
 
-    const rawTargetX = Math.max(0, Math.min(canvas.width, rawNormX * canvas.width));
-    const rawTargetY = Math.max(0, Math.min(canvas.height, rawNormY * canvas.height));
+    let nx = Math.max(-1, Math.min(1, data.deltaRoll / maxRollAngle));
+    let ny = Math.max(-1, Math.min(1, (data.deltaPitch * -invertY) / maxPitchAngle));
+
+    // Power curve gives fine-grained stability near center and smooth acceleration when swinging
+    const power = 1.12;
+    nx = Math.sign(nx) * Math.pow(Math.abs(nx), power);
+    ny = Math.sign(ny) * Math.pow(Math.abs(ny), power);
+
+    const rawTargetX = (0.5 + nx * 0.5) * canvas.width;
+    const rawTargetY = (0.5 + ny * 0.5) * canvas.height;
 
     // 1-Euro Adaptive Filter: Eliminates hand tremor jitter while keeping swings instant
     slicer.targetX = filterX.filter(rawTargetX, now);
@@ -1292,7 +1298,7 @@
   }
 
   function handleIncomingTouch(data) {
-    const sens = 2.5;
+    const sens = 2.4;
     slicer.targetX = Math.max(0, Math.min(canvas.width, slicer.targetX + data.dx * sens));
     slicer.targetY = Math.max(0, Math.min(canvas.height, slicer.targetY + data.dy * sens));
     slicer.isSlashing = true;
