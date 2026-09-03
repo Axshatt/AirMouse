@@ -515,8 +515,8 @@
     }
   }
 
-  const filterX = new OneEuroFilter(0.8, 0.06);
-  const filterY = new OneEuroFilter(0.8, 0.06);
+  const filterX = new OneEuroFilter(0.5, 0.03);
+  const filterY = new OneEuroFilter(0.5, 0.03);
 
   // ─── Slicer Circle State (Bigger Glowing Slicer Ring) ───
   const slicer = {
@@ -926,26 +926,25 @@
     }
   }
 
-  // ─── Slicer Physics & Motion Step ───
+  // ─── Slicer Physics & Motion Step (Ultra-Smooth Glider) ───
   function updateSlicerPhysics(dt, now) {
     slicer.prevX = slicer.x;
     slicer.prevY = slicer.y;
 
-    // Smooth Spring-Damper Follower
-    const springK = 0.32;
-    const damperD = 0.75;
+    // Frame-rate independent exponential gliding (buttery smooth with zero jitter)
+    const dtSeconds = Math.max(1e-3, dt / 1000);
+    // Glide response: 18.0 gives snappy yet completely vibration-free gliding
+    const glideRatio = 1 - Math.exp(-18.0 * dtSeconds);
 
-    const fx = (slicer.targetX - slicer.x) * springK;
-    const fy = (slicer.targetY - slicer.y) * springK;
+    const distToTarget = Math.hypot(slicer.targetX - slicer.x, slicer.targetY - slicer.y);
+    if (distToTarget > 0.5) {
+      slicer.x += (slicer.targetX - slicer.x) * glideRatio;
+      slicer.y += (slicer.targetY - slicer.y) * glideRatio;
+    }
 
-    slicer.vx = (slicer.vx + fx) * damperD;
-    slicer.vy = (slicer.vy + fy) * damperD;
-
-    slicer.x += slicer.vx;
-    slicer.y += slicer.vy;
-
-    slicer.speed = Math.hypot(slicer.x - slicer.prevX, slicer.y - slicer.prevY);
-    slicer.rotation += 0.06 + slicer.speed * 0.01;
+    const instantSpeed = Math.hypot(slicer.x - slicer.prevX, slicer.y - slicer.prevY);
+    slicer.speed = slicer.speed * 0.7 + instantSpeed * 0.3;
+    slicer.rotation += 0.04 + slicer.speed * 0.008;
 
     // Auto-Slash Detection on Fast Movement
     const isFastSwing = slicer.speed >= slicer.autoSlashSpeedThreshold;
@@ -954,13 +953,13 @@
       playSliceSwoosh(slicer.speed);
 
       // Trailing Spark Embers
-      if (Math.random() < 0.5) {
+      if (Math.random() < 0.4) {
         particles.push({
           type: 'spark',
-          x: slicer.x + (Math.random() - 0.5) * 16,
-          y: slicer.y + (Math.random() - 0.5) * 16,
-          vx: -slicer.vx * 0.2 + (Math.random() - 0.5) * 3,
-          vy: -slicer.vy * 0.2 + (Math.random() - 0.5) * 3,
+          x: slicer.x + (Math.random() - 0.5) * 14,
+          y: slicer.y + (Math.random() - 0.5) * 14,
+          vx: (slicer.x - slicer.prevX) * -0.2 + (Math.random() - 0.5) * 2,
+          vy: (slicer.y - slicer.prevY) * -0.2 + (Math.random() - 0.5) * 2,
           color: '#00e5ff',
           size: 2 + Math.random() * 3,
           life: 1,

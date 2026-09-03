@@ -637,13 +637,14 @@
     const rawGamma = e.gamma !== null ? e.gamma : 0;
     const rawAlpha = e.alpha !== null ? e.alpha : 0;
 
-    // Smooth slightly for mobile horizon HUD visualizer
-    currentBeta += (rawBeta - currentBeta) * 0.4;
-    currentGamma += (rawGamma - currentGamma) * 0.4;
-    currentAlpha += (rawAlpha - currentAlpha) * 0.4;
+    // Smooth filter to eliminate hardware IMU micro-noise
+    const filterWeight = 0.45;
+    currentBeta += (rawBeta - currentBeta) * filterWeight;
+    currentGamma += (rawGamma - currentGamma) * filterWeight;
+    currentAlpha += (rawAlpha - currentAlpha) * filterWeight;
 
-    const deltaPitch = rawBeta - centerBeta;
-    const deltaRoll = rawGamma - centerGamma;
+    const deltaPitch = currentBeta - centerBeta;
+    const deltaRoll = currentGamma - centerGamma;
 
     horizonLine.style.transform = `rotate(${-deltaRoll}deg)`;
     const clampedPitch = Math.max(-18, Math.min(18, deltaPitch));
@@ -658,9 +659,9 @@
         type: 'gyro',
         deltaPitch,
         deltaRoll,
-        rawBeta,
-        rawGamma,
-        rawAlpha,
+        rawBeta: currentBeta,
+        rawGamma: currentGamma,
+        rawAlpha: currentAlpha,
         rotRate: lastRotRate,
         isSlashing,
         sensitivity: sensitivityMultiplier,
